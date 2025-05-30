@@ -2,7 +2,7 @@
 
 ## 📌 Introduction
 
-**Field Vision** is a research and development project that brings together **Reinforcement Learning (RL)**, **Computer Vision (CV)**, and **Edge Computing** to optimize the autonomous navigation of UAVs in agricultural and field-based environments.
+**Field Vision** is a research and development project that brings together **Reinforcement Learning (RL)**, **Computer Vision (CV)**, and **Edge Computing** to optimize the  UAVs  during flight computation task in agricultural and field-based environments.
 
 The goal is to:
 
@@ -15,7 +15,7 @@ The goal is to:
 ---
 
 ## 🗂 Repository Structure (Suggested)
-
+```
 field-vision/
 │
 ├── README.md
@@ -48,7 +48,7 @@ field-vision/
 ├── docker-compose.yml
 ├── start.sh
 └── configs
-
+```
 
 
 
