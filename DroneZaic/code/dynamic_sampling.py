@@ -528,7 +528,7 @@ def draw_quiver(flow, magnitude, skip, save_path):
     max_color = 100
 
 
-    tick_positions = np.linspace(min_color, max_color, max_color/10+1)
+    tick_positions = np.linspace(min_color, max_color, int(max_color/10)+1)
 
     #extract motion vectors at the specified grid points
     #flow_x = flow[y, x, 0]
@@ -542,7 +542,7 @@ def draw_quiver(flow, magnitude, skip, save_path):
 
     #create quiver plot
     plt.figure(figsize=(10, 8))
-    plt.quiver(x, y, flow[y, x, 0], flow[y, x, 1], magnitude, pivot='mid', cmap=plt.cm.jet, linewidth=5, headwidth=3)
+    plt.quiver(x, y, flow[y, x, 0], flow[y, x, 1], magnitude[y, x], pivot='mid', cmap=plt.cm.jet, linewidth=5, headwidth=3)
     plt.colorbar(label='Magnitude', ticks=tick_positions, format='%.2f', orientation='vertical', shrink=0.57)
     plt.clim(min_color, max_color)
 

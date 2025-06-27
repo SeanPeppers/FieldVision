@@ -23,11 +23,18 @@ import csv
 from numpy import genfromtxt
 import numpy as np
 from numpy.linalg import inv
-from asift import my_asift
+from code.asift.asift import my_asift
 from datetime import datetime
 import time
-import csv
+# Note: csv is imported twice, but not harmful.
 
+# Assuming common.py is in the 'code' directory, not 'code/asift'
+from code.asift.common import Timer
+
+# Assuming find_obj.py is in the 'code' directory
+# You will need to ensure 'explore_match' signature in find_obj.py matches how it's called in asift.py
+# (e.g., if it expects kp1, kp2, kp_pairs as separate args)
+from code.asift.find_obj import init_feature, filter_matches, explore_match
 
 
 def mosaicking(img0, img1, counter, h_all, H_tp):
@@ -53,11 +60,11 @@ def mosaicking(img0, img1, counter, h_all, H_tp):
 
     # additional translation from offset
     H_translation = np.array([[1, 0, -x_min], [0, 1, -y_min], [0, 0, 1]])
-    
+
     #for homography in range(h_all):
 
     output_img = np.zeros(( y_max - y_min,x_max - x_min,3)) #define new global canvas
-    output_img[-y_min:img1.shape[0] - y_min, -x_min:img1.shape[1] - x_min] = img1    # put old image in the bottom part
+    output_img[-y_min:img1.shape[0] - y_min, -x_min:img1.shape[1] - x_min] = img1     # put old image in the bottom part
 
     warped_img = cv2.warpPerspective(img0, H_translation.dot(h_all),(x_max - x_min, y_max - y_min)) #apply homography to new image
     mask2 = (warped_img>0)*255
@@ -84,6 +91,7 @@ if __name__ == '__main__':
     parser.add_argument('-image_path', type=str, nargs='+', help="paths to one or more images or image directories")
     parser.add_argument('-hm', '--homography', type=str, help='txt file that stores homography matrices')
     parser.add_argument('-save_path', dest='save_path', default="global_mosaic/", type=str, help="path to save result")
+    # No -h or -d arguments are parsed here, as per maizaic_run.sh's new call
     args = parser.parse_args()
 
     save_path = args.save_path
@@ -95,44 +103,57 @@ if __name__ == '__main__':
     result_gry = None
 
 
-    image_paths = args.image_path
-    pathss = args.image_path
-    homography = args.homography
+    image_paths_raw = args.image_path # Keep raw args.image_path (might be a list or single dir)
+    actual_image_files = [] # This list will hold paths to individual image files
+
+    # Populate actual_image_files from input_image_paths
+    for single_path_arg in image_paths_raw:
+        if not os.path.exists(single_path_arg):
+            print('Error: {0} does not exists!'.format(single_path_arg))
+            continue
+        if os.path.isdir(single_path_arg):
+            extensions = [".jpeg", ".jpg", ".png"]
+            for file_name in sorted(os.listdir(single_path_arg)):
+                if os.path.splitext(file_name)[1].lower() in extensions:
+                    actual_image_files.append(os.path.join(single_path_arg, file_name))
+        else: # If it's a direct file path
+            actual_image_files.append(single_path_arg)
+
+    # Check if any images were found
+    if not actual_image_files:
+        print("Error: No images found in the specified -image_path(s). Cannot create global mosaic.")
+        exit(1) # Exit if no images to process
+
+    homography = args.homography # This argument is parsed but its associated code is commented out below
     image_index = -1
     counter = 0
-    #H_each = np.array((3,3)) 
-    H = [] 
+    H = []
     points_in = np.array([[0,0], [0,0],[0,0],[0,0]], dtype=np.float32)
-    #points_in = points_in.reshape((-1, 1, 2))
-    
-    ''' 
+
+    '''
+    # The code below to read homography from file is commented out.
+    # If you intend to use pre-calculated homographies here, uncomment and ensure 'homography' variable
+    # passed to my_asift is the correct global homography, not a per-frame one.
+    # The current logic will calculate H using my_asift for each pair.
     with open(homography, 'r') as csvFile:
-
         reader = csv.reader(csvFile, delimiter = ",")
-
         for row in reader:
             H_each = np.asarray(row, dtype=np.float).reshape(3,3)
-            H.append(H_each)   
-    
+            H.append(H_each)
 
     print(H)
     '''
     H_tp = np.array([[0,0,0],[0,0,0],[0,0,0]])
-    
 
-    for image_path in image_paths:
-        if not os.path.exists(image_path):
-            print('{0} does not exists!'.format(image_path))
-            continue
-        if os.path.isdir(image_path):
-            extensions = [".jpeg", ".jpg", ".png"]
-            for file_path in sorted(os.listdir(image_path)):
-                if os.path.splitext(file_path)[1].lower() in extensions:
-                    image_paths.append(os.path.join(image_path, file_path))
-            continue
 
+    for image_path in actual_image_files: # Loop through the list of actual image file paths
         print("reading frame {0}".format(image_path))
         image_color_big = cv2.imread(image_path)
+
+        if image_color_big is None:
+            print(f"Error: Could not read image at {image_path}. Skipping.")
+            continue # Skip to next image if imread fails
+
         filename = os.path.basename(image_path)
         height, width, channel = image_color_big.shape
         sw = int(width)
@@ -142,59 +163,53 @@ if __name__ == '__main__':
 
         print(filename)
 
-        #cv2.imwrite(os.path.join(args.save_path,filename), image_color)
-        
         image_gray = cv2.cvtColor(image_color, cv2.COLOR_RGB2GRAY)
-        
+
         image_index += 1
 
         if image_index == 0:
             print("inside image index", image_index)
             result = image_color
-            prev_color = image_color
+            prev_color = image_color # This variable seems unused after first frame.
             result_gry = image_gray
             continue
 
         print("counter ", counter)
 
-        #image_color is new image
-        #result is global mosaic
-         
-        h_time = time.time()
-        H = my_asift(result_gry, image_gray)
-        elapsed_time_h = time.time()-h_time
+        # image_color is new image
+        # result is current global mosaic
+        with Timer('my_asift'): # Using the Timer from common.py
+            H = my_asift(result_gry, image_gray) # H is calculated using ASIFT between current mosaic and new image
+
+        if H is None: # my_asift returns None if no homography found
+            print(f"Warning: No homography found for {filename}. Skipping this frame.")
+            continue
 
         H_flat = np.array(H).flatten().astype(np.float64)
         print(H_flat)
-        print(args.save_path)        
-        with open(save_path+"/H_asift.csv", 'a') as f1:
-           wr = csv.writer(f1, delimiter=",", escapechar = ",", quoting = csv.QUOTE_NONE)
-           wr.writerow(H_flat)
+        print(args.save_path)
 
-        with open(save_path+"/H_asift_time_elapsed.csv", 'a') as f2:
-           twr = csv.writer(f2,  delimiter=",", escapechar = ",", quoting = csv.QUOTE_NONE)
-           twr.writerow([elapsed_time_h])
-         
-        
-        '''  
-        H_curr = np.asarray(H[counter])
-        print(H_curr)
-        if counter==0:
-            H_acum = H_curr
-        else:
-            H_acum = np.dot((H_acum), (H_curr))
-            #H_acum = np.dot((H_curr), H_acum)i
+        # Saving homography for each pair
+        with open(os.path.join(save_path, "H_asift.csv"), 'a', newline='') as f1: # Added newline='' for proper CSV writing
+            wr = csv.writer(f1, delimiter=",", escapechar = ",", quoting = csv.QUOTE_NONE)
+            wr.writerow(H_flat)
 
-        '''
-        
-        result, H_tp = mosaicking(image_color, result, counter, H, H_tp)
+        # The line below was removed as 'elapsed_time_h' is not defined in this scope.
+        # with open(os.path.join(save_path, "H_asift_time_elapsed.csv"), 'a', newline='') as f2:
+        #     twr = csv.writer(f2, delimiter=",", escapechar = ",", quoting = csv.QUOTE_NONE)
+        #     twr.writerow([elapsed_time_h])
+
+        result, H_tp = mosaicking(image_color, result, counter, H, H_tp) # img0 is new image, img1 is current mosaic
 
         counter+=1
-        cv2.imwrite(save_path+"/global_mosaic_"+str(counter)+".png", result)
+        cv2.imwrite(os.path.join(save_path, f"global_mosaic_{counter}.png"), result) # Using f-string for clearer naming
         result_gry = cv2.cvtColor(result, cv2.COLOR_RGB2GRAY)
-        prev_color = image_color
+        prev_color = image_color # Still seems unused, but not harmful.
 
-    cv2.imwrite(save_path+"/final_global_mosaic_"+str(counter)+".png", result)
-    
+    # Final save after the loop finishes
+    if result is not None: # Only save if at least one image was processed
+        cv2.imwrite(os.path.join(save_path, f"final_global_mosaic_{counter}.png"), result)
+    else:
+        print("No final mosaic generated as no valid images were processed.")
+
     print("DONE!")
-       

@@ -1,5 +1,5 @@
-# Use an official Python runtime as a parent image
-FROM python:3.5-slim-buster
+# Use a more recent and actively supported Python runtime as a parent image
+FROM python:3.10-slim-buster
 
 # Set the working directory in the container
 WORKDIR /app
@@ -11,51 +11,63 @@ RUN apt-get update && \
     libsm6 \
     libxext6 \
     libxrender1 \
-    ffmpeg && \
+    libgl1-mesa-glx \
+    ffmpeg \
+    exiftool && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy the requirements file and install Python dependencies
+# Copy only the requirements.txt first to leverage Docker's build cache
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the entire project directory into the container
+# Copy all *necessary* code files.
+# With the .dockerignore, this will only bring in the actual Python scripts and __init__.py files.
 COPY . .
 
-# Define the command to run when the container starts
-# This entire CMD is now one very long, escaped string.
-# Each logical command within the script is terminated by a semicolon.
-CMD ["bash", "-c", "\
-INPUT_VIDEOS_DIR=\"/app/input_videos\"; \
-EXTRACTED_FRAMES_DIR=\"/app/extracted_frames\"; \
-OUTPUT_DIR=\"/app/outputs\"; \
-echo \"--- Docker Container Startup ---\"; \
-echo \"Current working directory: $(pwd)\"; \
-echo \"Input videos will be read from: $INPUT_VIDEOS_DIR\"; \
-echo \"Extracted frames will be stored in: $EXTRACTED_FRAMES_DIR\"; \
-echo \"Stitched outputs will be saved to: $OUTPUT_DIR\"; \
-if [ ! -d \"$INPUT_VIDEOS_DIR\" ]; then echo \"ERROR: Input videos directory '$INPUT_VIDEOS_DIR' does not exist inside the container.\"; echo \"       Please ensure your Docker volume mount for input_videos is correct.\"; exit 1; fi; \
-if [ -z \"$(ls -A \"$INPUT_VIDEOS_DIR\")\" ]; then echo \"WARNING: Input videos directory '$INPUT_VIDEOS_DIR' is empty. No videos to process.\"; echo \"         Please ensure you have placed video files in your mounted input_videos folder.\"; exit 0; fi; \
-echo \"Proceeding with DroneZaic pipeline...\"; \
-mkdir -p \"$EXTRACTED_FRAMES_DIR\" || { echo \"ERROR: Failed to create $EXTRACTED_FRAMES_DIR\"; exit 1; }; \
-mkdir -p \"$OUTPUT_DIR\" || { echo \"ERROR: Failed to create $OUTPUT_DIR\"; exit 1; }; \
-VIDEO_COUNT=0; \
-for video_file in \"$INPUT_VIDEOS_DIR\"/*; do \
-    if [ -f \"$video_file\" ]; then \
-        VIDEO_COUNT=$((VIDEO_COUNT+1)); \
-        echo \"--- Processing video: $(basename \"$video_file\") ---\"; \
-        VIDEO_FRAMES_SUBDIR=\"${EXTRACTED_FRAMES_DIR}/$(basename \"${video_file%.*}\")_frames\"; \
-        mkdir -p \"$VIDEO_FRAMES_SUBDIR\" || { echo \"ERROR: Failed to create $VIDEO_FRAMES_SUBDIR\"; exit 1; }; \
-        echo \"Extracting frames from $(basename \"$video_file\")...\"; \
-        ffmpeg -i \"$video_file\" -vf fps=1 -q:v 2 \"${VIDEO_FRAMES_SUBDIR}/%05d.jpg\" 2>&1 || { echo \"ERROR: FFmpeg failed for $(basename \"$video_file\")\"; exit 1; }; \
-        echo \"Frames extracted to: $VIDEO_FRAMES_SUBDIR\"; \
-        echo \"Running DroneZaic stitcher on frames from $(basename \"$video_file\")...\"; \
-        CURRENT_OUTPUT_IMAGE=\"${OUTPUT_DIR}/stitched_$(basename \"${video_file%.*}\").jpg\"; \
-        python code/stitcher.py -image_path \"$VIDEO_FRAMES_SUBDIR\" -save_path \"$CURRENT_OUTPUT_IMAGE\" 2>&1 || { echo \"ERROR: DroneZaic stitcher failed for frames from $(basename \"$video_file\")\"; exit 1; }; \
-        echo \"Stitching complete. Output: $CURRENT_OUTPUT_IMAGE\"; \
-    else \
-        echo \"WARNING: Skipping non-file item in $INPUT_VIDEOS_DIR: $(basename \"$video_file\")\"; \
-    fi; \
-done; \
-if [ \"$VIDEO_COUNT\" -eq 0 ]; then echo \"No valid video files found for processing in $INPUT_VIDEOS_DIR.\"; fi; \
-echo \"--- DroneZaic pipeline finished. ---\"\
-"]
+# --- START SUPER-VERBOSER DIAGNOSTIC AND VALIDATION STEPS ---
+# These steps are designed to FAIL THE BUILD if files/imports/definitions are not as expected.
+# This should pinpoint the exact issue if file copying or content is wrong.
+
+# Step 1: Verify core file presence and __init__.py structure
+RUN echo "--- VERIFYING CORE FILE PRESENCE AND STRUCTURE ---" && \
+    ls -l /app/code/__init__.py || (echo "ERROR: /app/code/__init__.py missing!" && exit 1) && \
+    ls -l /app/code/asift/__init__.py || (echo "ERROR: /app/code/asift/__init__.py missing!" && exit 1) && \
+    ls -l /app/code/asift/common.py || (echo "ERROR: /app/code/asift/common.py missing!" && exit 1) && \
+    ls -l /app/code/asift/find_obj.py || (echo "ERROR: /app/code/asift/find_obj.py missing!" && exit 1) && \
+    ls -l /app/code/asift/asift.py || (echo "ERROR: /app/code/asift/asift.py missing!" && exit 1) && \
+    ls -l /app/code/mini_mosaic_360.py || (echo "ERROR: /app/code/mini_mosaic_360.py missing!" && exit 1)
+
+# Step 2: Print content of crucial Python files for visual inspection in logs
+RUN echo "\n--- CONTENT OF /app/code/asift/common.py ---" && cat /app/code/asift/common.py
+RUN echo "\n--- CONTENT OF /app/code/asift/find_obj.py ---" && cat /app/code/asift/find_obj.py
+RUN echo "\n--- CONTENT OF /app/code/asift/asift.py ---" && cat /app/code/asift/asift.py
+RUN echo "\n--- CONTENT OF /app/code/mini_mosaic_360.py ---" && cat /app/code/mini_mosaic_360.py
+
+# Step 3: Verify import lines in asift.py
+RUN echo "\n--- VERIFYING IMPORTS IN /app/code/asift/asift.py ---" && \
+    grep -E "from \.common import Timer" /app/code/asift/asift.py || \
+        (echo "ERROR: 'from .common import Timer' not found in asift.py!" && exit 1) && \
+    grep -E "from \.find_obj import init_feature, filter_matches, explore_match" /app/code/asift/asift.py || \
+        (echo "ERROR: 'from .find_obj import ...' not found in asift.py!" && exit 1)
+
+# Step 4: Verify import line in mini_mosaic_360.py
+RUN echo "\n--- VERIFYING IMPORT IN /app/code/mini_mosaic_360.py ---" && \
+    grep -E "from code.asift.asift import my_asift" /app/code/mini_mosaic_360.py || \
+        (echo "ERROR: 'from code.asift.asift import my_asift' not found in mini_mosaic_360.py!" && exit 1)
+
+# Step 5: Verify init_feature definition in find_obj.py
+RUN echo "\n--- VERIFYING 'init_feature' DEFINITION IN /app/code/asift/find_obj.py ---" && \
+    grep -E "^def init_feature\(" /app/code/asift/find_obj.py || \
+        (echo "ERROR: 'init_feature' function definition not found in find_obj.py! Check for typos or if it's nested." && exit 1)
+
+# --- END SUPER-VERBOSER DIAGNOSTIC AND VALIDATION STEPS ---
+
+
+# IMPORTANT: Explicitly add /app to PYTHONPATH
+ENV PYTHONPATH=/app:$PYTHONPATH
+
+# Add execute permission to the maizaic_run.sh script
+RUN chmod +x code/maizaic_run.sh
+
+# Define the command to run when the container starts.
+CMD ["code/maizaic_run.sh", "-h", "surf", "-d", "false"]

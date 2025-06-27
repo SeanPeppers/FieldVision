@@ -9,8 +9,8 @@ is used to reject outliers. Threading is used for faster affine sampling.
 [1] http://www.ipol.im/pub/algo/my_affine_sift/
 USAGE
   asift.py [--feature=<sift|surf|orb|brisk>[-flann]] [ <image1> <image2> ]
-  --feature  - Feature to use. Can be sift, surf, orb or brisk. Append '-flann'
-               to feature name to use Flann-based matcher instead bruteforce.
+  --feature   - Feature to use. Can be sift, surf, orb or brisk. Append '-flann'
+                to feature name to use Flann-based matcher instead bruteforce.
   Press left mouse button on a feature point to see its matching point.
 '''
 
@@ -26,8 +26,8 @@ import itertools as it
 from multiprocessing.pool import ThreadPool
 
 # local modules
-from common import Timer
-from find_obj import init_feature, filter_matches, explore_match
+from .common import Timer
+from .find_obj import init_feature, filter_matches, explore_match # ensure find_obj is updated as well
 
 
 def affine_skew(tilt, phi, img, mask=None):
@@ -78,6 +78,20 @@ def affine_detect(detector, img, mask=None, pool=None):
         t, phi = p
         timg, tmask, Ai = affine_skew(t, phi, img)
         keypoints, descrs = detector.detectAndCompute(timg, tmask)
+
+        # --- DEBUG PRINTS START ---
+        if keypoints:
+            print(f"DEBUG: (affine_detect.f) Type of keypoints list: {type(keypoints)}")
+            if len(keypoints) > 0:
+                print(f"DEBUG: (affine_detect.f) Type of first keypoint in list: {type(keypoints[0])}")
+                if not isinstance(keypoints[0], cv.KeyPoint):
+                    print("DEBUG: (affine_detect.f) ALERT! First keypoint is NOT a cv2.KeyPoint object!")
+            else:
+                print("DEBUG: (affine_detect.f) Keypoints list is empty.")
+        else:
+            print("DEBUG: (affine_detect.f) No keypoints detected for this affine transform (keypoints is None).")
+        # --- DEBUG PRINTS END ---
+
         for kp in keypoints:
             x, y = kp.pt
             kp.pt = tuple( np.dot(Ai, (x, y, 1)) )
@@ -101,8 +115,6 @@ def affine_detect(detector, img, mask=None, pool=None):
 
 def my_asift(img1, img2):
     feature_name = "sift-flann"
-    #img1 = cv.imread(fn1, 0)
-    #img2 = cv.imread(fn2, 0)
     detector, matcher = init_feature(feature_name)
     '''
     if img1 is None:
@@ -117,39 +129,34 @@ def my_asift(img1, img2):
         print('unknown feature:', feature_name)
         sys.exit(1)
     '''
-    #print('using', feature_name)
-    #print('thread ', str(threading.active_count()))
     pool=ThreadPool(processes = cv.getNumberOfCPUs())
-    #print('thread count ', str(pool.active_count()))
     kp1, desc1 = affine_detect(detector, img1, pool=pool)
     kp2, desc2 = affine_detect(detector, img2, pool=pool)
-    #print('img1 - %d features, img2 - %d features' % (len(kp1), len(kp2)))
     print('test')
+
     def match_and_draw(win):
         with Timer('matching'):
             raw_matches = matcher.knnMatch(desc1, trainDescriptors = desc2, k = 2) #2
-        p1, p2, kp_pairs = filter_matches(kp1, kp2, raw_matches)
+        
+        p1, p2, kp_pairs_indices = filter_matches(kp1, kp2, raw_matches) # Correct unpack
+
         if len(p1) >= 4:
             H, status = cv.findHomography(p1, p2, cv.RANSAC, 5.0)
-            #print('%d / %d  inliers/matched' % (np.sum(status), len(status)))
-            # do not draw outliers (there will be a lot of them)
-            kp_pairs = [kpp for kpp, flag in zip(kp_pairs, status) if flag]
-            #print(H)
+            # Filter kp_pairs_indices based on homography status for explore_match
+            kp_pairs_for_explore = [pair for pair, flag in zip(kp_pairs_indices, status) if flag]
         else:
             H, status = None, None
-            #print('%d matches found, not enough for homography estimation' % len(p1))
+            kp_pairs_for_explore = [] # No matches, so no pairs for explore_match
 
-        #print("before explore match")
-        explore_match(win, img1, img2, kp_pairs, None, H)
-        #print("after explore match")
-	return H
-	
+        # CORRECTED LINE for passing arguments to explore_match
+        explore_match(win, img1, img2, kp1, kp2, kp_pairs_for_explore, None, H)
+        return H
+    
     print("right before match and draw")
     H=match_and_draw('affine find_obj')
     pool.close()
     pool.join()
-    cv.waitKey()
-    #print('Done')
+    # cv.waitKey() # Commented out for pipeline
     return H
 
 
@@ -160,17 +167,14 @@ def main():
     feature_name = opts.get('--feature', 'brisk-flann')
 
     path = "test/"
-
-    #cv.samples.addSamplesDataSearchPath(path)
     
-
     try:
         fn1, fn2 = args
         print('inside args')
     except:
         fn1 = 'aero1.jpg'
         fn2 = 'aero3.jpg'
-	print('inside except')
+    print('inside except')
     img1 = cv.imread(fn1, 0)
     img2 = cv.imread(fn2, 0)
     detector, matcher = init_feature(feature_name)
@@ -197,28 +201,27 @@ def main():
     def match_and_draw(win):
         with Timer('matching'):
             raw_matches = matcher.knnMatch(desc1, trainDescriptors = desc2, k = 2) #2
-        p1, p2, kp_pairs = filter_matches(kp1, kp2, raw_matches)
+        
+        p1, p2, kp_pairs_indices = filter_matches(kp1, kp2, raw_matches) 
+
         if len(p1) >= 4:
             H, status = cv.findHomography(p1, p2, cv.RANSAC, 5.0)
             print('%d / %d  inliers/matched' % (np.sum(status), len(status)))
-            # do not draw outliers (there will be a lot of them)
-            kp_pairs = [kpp for kpp, flag in zip(kp_pairs, status) if flag]
+            kp_pairs_for_explore = [pair for pair, flag in zip(kp_pairs_indices, status) if flag]
             print(H)
         else:
             H, status = None, None
             print('%d matches found, not enough for homography estimation' % len(p1))
-	
-        #print("before explore match")
-        explore_match(win, img1, img2, kp_pairs, None, H)
-        #print("after explore match")
+            kp_pairs_for_explore = []
+        
+        # CORRECTED LINE for passing arguments to explore_match
+        explore_match(win, img1, img2, kp1, kp2, kp_pairs_for_explore, None, H)
 
-    #print("right before match and draw")
     match_and_draw('affine find_obj')
-    cv.waitKey()
+    cv.waitKey() # Commented out for pipeline
     print('Done')
 
 
 if __name__ == '__main__':
-    #print(__doc__)
     main()
     cv.destroyAllWindows()

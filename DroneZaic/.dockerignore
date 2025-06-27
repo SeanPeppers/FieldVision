@@ -1,0 +1,31 @@
+# .dockerignore
+
+# Directories containing large data or generated at runtime.
+# These will NOT be included in the Docker image.
+input_videos/
+outputs/
+data/
+
+# Ignore Git-related files
+.git/
+.gitignore
+
+# Ignore Python cache and virtual environment directories
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+env/
+venv/
+
+# Ignore macOS specific files
+.DS_Store
+**/.DS_Store
+
+# Ignore Windows specific files that might appear during development
+*:Zone.Identifier
+
+# Ignore other common development artifacts
+*.log
+*.swp
+*.tmp
