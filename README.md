@@ -52,7 +52,50 @@ field-vision/
 
 
 
----
+## Running DroneZiac Docker Container.
+
+
+
+```
+cd DroneZaic
+mkdir input_videos outputs # Copy videos here
+CURRENT_DIR=$(pwd)
+
+docker run -it \
+  -v "${CURRENT_DIR}/input_videos:/app/input_videos" \
+  -v "${CURRENT_DIR}/outputs:/app/outputs" \
+  dronezaic bash
+```
+Once the container is up and running, the pipeline can be initiated.
+
+```
+cd /app
+python code/dynamic_sampling.py -video /app/input_videos/DJI_0604.MOV -save_path /app/outputs/extracted_frames -srt /app/input_videos/dji.srt -win 100 -scale 3 -fname DJI_0604_frames -format tif
+```
+
+
+```
+cd /app
+python code/calibration.py \
+-image_path outputs/extracted_frames/raw \
+-save_path outputs/calibrated_frames
+```
+
+```
+python code/surf/surf_homography_estimation.py \
+-image_path outputs/calibrated_frames \
+-save_path outputs/homography_results \
+-scale 1
+```
+
+```
+cd /app
+./code/maizaic_run.sh \
+-p outputs \
+-h surf \
+-d false
+```
+
 
 ## 🔧 Setup & Installation
 

@@ -1,24 +1,24 @@
-# Use a more recent and actively supported Python runtime as a parent image
-FROM python:3.10-slim-buster
+# Use a conda-based image with GDAL 3.6 and rasterio preinstalled
+FROM mambaorg/micromamba:1.4.2
 
-# Set the working directory in the container
+# Set working directory
 WORKDIR /app
 
-# Install system dependencies:
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    build-essential \
-    libsm6 \
-    libxext6 \
-    libxrender1 \
-    libgl1-mesa-glx \
+# Install packages using micromamba (faster than conda, compatible with conda-forge)
+RUN micromamba install -y -n base -c conda-forge \
+    python=3.10 \
+    gdal>=3.6 \
+    rasterio \
+    pip \
     ffmpeg \
-    exiftool && \
-    rm -rf /var/lib/apt/lists/*
+    exiftool \
+    opencv \
+    && micromamba clean --all --yes
+
 
 # Copy only the requirements.txt first to leverage Docker's build cache
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN micromamba run -n base pip install --no-cache-dir -r requirements.txt
 
 # Copy all *necessary* code files.
 # With the .dockerignore, this will only bring in the actual Python scripts and __init__.py files.
@@ -64,10 +64,12 @@ RUN echo "\n--- VERIFYING 'init_feature' DEFINITION IN /app/code/asift/find_obj.
 
 
 # IMPORTANT: Explicitly add /app to PYTHONPATH
-ENV PYTHONPATH=/app:$PYTHONPATH
+#ENV PYTHONPATH=/app:$PYTHONPATH
+# Set default Python path first, then add /app
+ENV PYTHONPATH=/usr/local/lib/python3.10/site-packages:/app
 
 # Add execute permission to the maizaic_run.sh script
-RUN chmod +x code/maizaic_run.sh
+#RUN chmod +x code/maizaic_run.sh
 
 # Define the command to run when the container starts.
 CMD ["code/maizaic_run.sh", "-h", "surf", "-d", "false"]
