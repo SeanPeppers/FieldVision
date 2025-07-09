@@ -5,6 +5,9 @@ CONTAINER_OUTPUTS_DIR="/app/outputs" # This will be mounted from host
 
 hm_method=""
 mode_duplicate=true
+TILE_SIZE_PX=4096 # Define default tile size here
+OUTPUT_GLOBAL_MOSAIC_NAME="final_global_mosaic" # Define default output name
+ASIFT_SCALE=1.0 # ADD THIS LINE: Define default ASIFT scale here
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -15,6 +18,10 @@ while [[ "$#" -gt 0 ]]; do
             shift ;;
         -h|--hm_method) hm_method="$2"; shift ;;
         -d|--mode_duplicate) mode_duplicate="$2"; shift ;; # Use true or false
+        -t|--tile_size) TILE_SIZE_PX="$2"; shift ;; # New argument for tile size
+        -o|--output_name) OUTPUT_GLOBAL_MOSAIC_NAME="$2"; shift ;; # New argument for output name
+        # ADD THIS BLOCK: Handle the -a|--asift_scale argument
+        -a|--asift_scale) ASIFT_SCALE="$2"; shift ;;
         *) echo "Unknown parameter: $1"; exit 1 ;;
     esac
     shift
@@ -22,8 +29,8 @@ done
 
 # Validate required arguments
 if [ -z "$hm_method" ]; then
-    echo "Usage: ./maizaic_run.sh -h <homography_method> [-d <mode_duplicate>]"
-    echo "Example: ./maizaic_run.sh -h surf -d false"
+    echo "Usage: ./maizaic_run.sh -h <homography_method> [-d <mode_duplicate>] [-t <tile_size_pixels>] [-o <output_name>] [-a <asift_scale>]"
+    echo "Example: ./maizaic_run.sh -h surf -d false -t 8192 -o my_big_mosaic -a 0.5"
     exit 1
 fi
 
@@ -38,7 +45,7 @@ HOMOGRAPHY_MATRICES_FILE="$HOMOGRAPHY_RESULTS_DIR/homography_matrices/H_${hm_met
 # Ensure output subdirectories for THIS script's new outputs exist
 mkdir -p "$CONTAINER_OUTPUTS_DIR/${hm_method}_mini_partition"
 mkdir -p "$CONTAINER_OUTPUTS_DIR/${hm_method}_mini_mosaics"
-mkdir -p "$CONTAINER_OUTPUTS_DIR/${hm_method}_global_mosaic"
+mkdir -p "$CONTAINER_OUTPUTS_DIR/${hm_method}_global_mosaic_tiled" # Changed name to reflect tiling
 
 start_time=$(date +%s)
 
@@ -83,10 +90,9 @@ echo "Image partitioning complete."
 # --- PHASE 2: Loop to mosaic all mini-mosaics ---
 echo "Running stitcher.py for mini mosaics..."
 
-MINI_PARTITION_DIR="$CONTAINER_OUTPUTS_DIR/${hm_method}_mini_partition" # Ensure this path is defined
-MINI_MOSAICS_DIR="$CONTAINER_OUTPUTS_DIR/${hm_method}_mini_mosaics" # Ensure this path is defined
+MINI_PARTITION_DIR="$CONTAINER_OUTPUTS_DIR/${hm_method}_mini_partition"
+MINI_MOSAICS_DIR="$CONTAINER_OUTPUTS_DIR/${hm_method}_mini_mosaics"
 
-# Corrected find command to look for H_asift_group_*.csv
 find "$MINI_PARTITION_DIR" -name "H_asift_group_*.csv" | sort | while read mini_hm; do
     if [ -f "$mini_hm" ]; then
         echo "Processing $mini_hm"
@@ -103,34 +109,34 @@ find "$MINI_PARTITION_DIR" -name "H_asift_group_*.csv" | sort | while read mini_
             -mini_mosaic"
 
         eval "$stitcher_cmd"
-        if [ $? -ne 0 ]; then echo "Error: stitcher.py failed for $mini_hm."; break; fi # Break if stitcher fails
+        if [ $? -ne 0 ]; then echo "Error: stitcher.py failed for $mini_hm."; break; fi
     else
         echo "Error: File not found after 'find' for $mini_hm" >&2
     fi
 done
 
-# Handle the case if find returns no files
-# Corrected find command here as well
 if ! find "$MINI_PARTITION_DIR" -name "H_asift_group_*.csv" -print -quit | grep -q .; then
     echo "WARNING: No H_asift_group_*.csv files were found in $MINI_PARTITION_DIR. Mini mosaics will not be generated." >&2
-    exit 1 # Exit if mini_mosaics are critical and not found
+    exit 1
 fi
 echo "Mini mosaics complete."
 
-# --- PHASE 3: Assemble global mosaic ---
-echo "Assembling global mosaic..."
+# --- PHASE 3: Assemble global mosaic using out-of-core tiling ---
+echo "Assembling global mosaic using out-of-core tiling..."
 
-GLOBAL_MOSAIC_DIR="$CONTAINER_OUTPUTS_DIR/${hm_method}_global_mosaic" # Ensure this path is defined
+GLOBAL_MOSAIC_TILED_DIR="$CONTAINER_OUTPUTS_DIR/${hm_method}_global_mosaic_tiled" # Use the new directory name
 
-# Ensure the MINI_MOSAICS_DIR has content before proceeding to global mosaic
-if ! ls "$MINI_MOSAICS_DIR"/*.png &> /dev/null; then # Check for at least one PNG file
+if ! ls "$MINI_MOSAICS_DIR"/*.png &> /dev/null; then
     echo "Error: No mini mosaics found in '$MINI_MOSAICS_DIR'. Cannot assemble global mosaic."
     exit 1
 fi
 
 python code/mini_mosaic_360.py \
     -image_path "$MINI_MOSAICS_DIR" \
-    -save_path "$GLOBAL_MOSAIC_DIR"
+    -save_path "$GLOBAL_MOSAIC_TILED_DIR" \
+    -tile_size_px "$TILE_SIZE_PX" \
+    -output_name "$OUTPUT_GLOBAL_MOSAIC_NAME" \
+    -asift_scale "$ASIFT_SCALE" # ADD THIS LINE: Pass the ASIFT scale to mini_mosaic_360.py
 
 if [ $? -ne 0 ]; then echo "Error: mini_mosaic_360.py failed to assemble global mosaic."; exit 1; fi
 echo "Global mosaic assembly complete."

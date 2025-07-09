@@ -5,6 +5,7 @@ FROM python:3.10-slim-buster
 WORKDIR /app
 
 # Install system dependencies:
+# Added libgdal-dev and gdal-bin for rasterio/GDAL support
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
@@ -13,7 +14,9 @@ RUN apt-get update && \
     libxrender1 \
     libgl1-mesa-glx \
     ffmpeg \
-    exiftool && \
+    exiftool \
+    libgdal-dev \
+    gdal-bin && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy only the requirements.txt first to leverage Docker's build cache
@@ -66,8 +69,10 @@ RUN echo "\n--- VERIFYING 'init_feature' DEFINITION IN /app/code/asift/find_obj.
 # IMPORTANT: Explicitly add /app to PYTHONPATH
 ENV PYTHONPATH=/app:$PYTHONPATH
 
-# Add execute permission to the maizaic_run.sh script
 RUN chmod +x code/maizaic_run.sh
+RUN chmod +x code/run_all.sh
+RUN chmod +x code/run_global.sh
+RUN chmod +x code/run_mini.sh
 
 # Define the command to run when the container starts.
 CMD ["code/maizaic_run.sh", "-h", "surf", "-d", "false"]

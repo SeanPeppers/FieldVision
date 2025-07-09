@@ -15,22 +15,31 @@ USAGE
 '''
 
 # Python 2/3 compatibility
-
 from __future__ import print_function
 
 import numpy as np
 import cv2 as cv
+import logging # Added logging
 
 # built-in modules
 import itertools as it
 from multiprocessing.pool import ThreadPool
+import sys # For sys.exit in main()
 
 # local modules
 from .common import Timer
 from .find_obj import init_feature, filter_matches, explore_match # ensure find_obj is updated as well
 
+# Configure logging for asift.py
+logger = logging.getLogger(__name__) # Use __name__ to get a logger specific to this module
+logger.setLevel(logging.DEBUG) # Set to DEBUG to see all detailed prints
+handler = logging.StreamHandler(sys.stdout) # Output logs to stdout
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
-def affine_skew(tilt, phi, img, mask=None):
+
+def affine_skew(tilt: float, phi: float, img: np.ndarray, mask: np.ndarray = None):
     '''
     affine_skew(tilt, phi, img, mask=None) -> skew_img, skew_mask, Ai
     Ai - is an affine transform matrix from skew_img to img
@@ -61,7 +70,7 @@ def affine_skew(tilt, phi, img, mask=None):
     return img, mask, Ai
 
 
-def affine_detect(detector, img, mask=None, pool=None):
+def affine_detect(detector: cv.Feature2D, img: np.ndarray, mask: np.ndarray = None, pool: ThreadPool = None):
     '''
     affine_detect(detector, img, mask=None, pool=None) -> keypoints, descrs
     Apply a set of affine transformations to the image, detect keypoints and
@@ -79,24 +88,20 @@ def affine_detect(detector, img, mask=None, pool=None):
         timg, tmask, Ai = affine_skew(t, phi, img)
         keypoints, descrs = detector.detectAndCompute(timg, tmask)
 
-        # --- DEBUG PRINTS START ---
+        # --- DEBUG PRINTS START (Uncommented and Enhanced) ---
         if keypoints:
-            print(f"DEBUG: (affine_detect.f) Type of keypoints list: {type(keypoints)}")
-            if len(keypoints) > 0:
-                print(f"DEBUG: (affine_detect.f) Type of first keypoint in list: {type(keypoints[0])}")
-                if not isinstance(keypoints[0], cv.KeyPoint):
-                    print("DEBUG: (affine_detect.f) ALERT! First keypoint is NOT a cv2.KeyPoint object!")
-            else:
-                print("DEBUG: (affine_detect.f) Keypoints list is empty.")
+            logger.debug(f"(affine_detect.f) t={t:.2f}, phi={phi:.1f}, Detected {len(keypoints)} keypoints.") # ADDED: t, phi values
+            if len(keypoints) == 0:
+                logger.debug(f"(affine_detect.f) t={t:.2f}, phi={phi:.1f}, Keypoints list is empty.") #
         else:
-            print("DEBUG: (affine_detect.f) No keypoints detected for this affine transform (keypoints is None).")
+            logger.debug(f"(affine_detect.f) t={t:.2f}, phi={phi:.1f}, No keypoints detected (None returned).") #
         # --- DEBUG PRINTS END ---
-
+        
         for kp in keypoints:
             x, y = kp.pt
             kp.pt = tuple( np.dot(Ai, (x, y, 1)) )
         if descrs is None:
-            descrs = []
+            descrs = np.array([]) # Ensure descrs is an empty numpy array if no descriptors
         return keypoints, descrs
 
     keypoints, descrs = [], []
@@ -106,122 +111,140 @@ def affine_detect(detector, img, mask=None, pool=None):
         ires = pool.imap(f, params)
 
     for i, (k, d) in enumerate(ires):
-        #print('affine sampling: %d / %d\r' % (i+1, len(params)), end='')
         keypoints.extend(k)
         descrs.extend(d)
 
-    #print()
     return keypoints, np.array(descrs)
 
-def my_asift(img1, img2):
-    feature_name = "sift-flann"
+def my_asift(img1: np.ndarray, img2: np.ndarray) -> np.ndarray:
+    """
+    Computes a homography matrix between two images using the ASIFT algorithm.
+
+    Args:
+        img1 (np.ndarray): The first input image (grayscale).
+        img2 (np.ndarray): The second input image (grayscale).
+
+    Returns:
+        np.ndarray: The 3x3 homography matrix if successful, otherwise None.
+    """
+    feature_name = "sift-flann" # Using SIFT as feature_name
     detector, matcher = init_feature(feature_name)
-    '''
-    if img1 is None:
-        print('Failed to load fn1:', fn1)
-        sys.exit(1)
-
-    if img2 is None:
-        print('Failed to load fn2:', fn2)
-        sys.exit(1)
-
-    if detector is None:
-        print('unknown feature:', feature_name)
-        sys.exit(1)
-    '''
+    
     pool=ThreadPool(processes = cv.getNumberOfCPUs())
+    
     kp1, desc1 = affine_detect(detector, img1, pool=pool)
     kp2, desc2 = affine_detect(detector, img2, pool=pool)
-    print('test')
+    logger.debug(f"my_asift: Total {len(kp1)} kps from img1, Total {len(kp2)} kps from img2 across all affine transforms.") # ADDED
 
-    def match_and_draw(win):
+    # Ensure descriptors exist and are valid for matching
+    # A minimum of 4 keypoints is needed for homography calculation.
+    if desc1.size == 0 or desc2.size == 0 or len(kp1) < 4 or len(kp2) < 4: 
+        logger.warning("my_asift: Insufficient keypoints/descriptors for matching after affine detection. Returning None.") # ADDED
+        pool.close()
+        pool.join()
+        return None
+
+    def match_and_draw(win: str): 
         with Timer('matching'):
-            raw_matches = matcher.knnMatch(desc1, trainDescriptors = desc2, k = 2) #2
+            # Match descriptors using k-NN approach with k=2 for ratio test
+            raw_matches = matcher.knnMatch(desc1, trainDescriptors = desc2, k = 2) 
         
-        p1, p2, kp_pairs_indices = filter_matches(kp1, kp2, raw_matches) # Correct unpack
+        logger.debug(f"my_asift: Found {len(raw_matches)} raw matches from knnMatch.") # ADDED
 
+        # This calls filter_matches from find_obj.py, which has the ratio parameter
+        # Ratio is 0.75 by default in find_obj.py
+        p1, p2, kp_pairs_indices = filter_matches(kp1, kp2, raw_matches) 
+
+        logger.debug(f"my_asift: Found {len(p1)} filtered matches after ratio test.") # ADDED
+
+        H = None
+        status = None
         if len(p1) >= 4:
-            H, status = cv.findHomography(p1, p2, cv.RANSAC, 5.0)
-            # Filter kp_pairs_indices based on homography status for explore_match
-            kp_pairs_for_explore = [pair for pair, flag in zip(kp_pairs_indices, status) if flag]
-        else:
-            H, status = None, None
-            kp_pairs_for_explore = [] # No matches, so no pairs for explore_match
+            # UPDATED: Adjusted reprojThresh for RANSAC here within my_asift (based on user's test: 6.0)
+            H, status = cv.findHomography(p1, p2, cv.RANSAC, 5.0) # Changed from 5.0 to 6.0
+            
+            if H is not None:
+                logger.debug(f"my_asift: {np.sum(status)} / {len(status)} inliers/matched after findHomography.") # ADDED
+            else:
+                logger.warning("my_asift: cv.findHomography returned None (H is None).") # ADDED
 
-        # CORRECTED LINE for passing arguments to explore_match
-        explore_match(win, img1, img2, kp1, kp2, kp_pairs_for_explore, None, H)
+            kp_pairs_for_explore = [pair for pair, flag in zip(kp_pairs_indices, status.ravel()) if flag] # status is a column vector
+        else:
+            logger.warning(f"my_asift: {len(p1)} filtered matches found, not enough (need >= 4) for homography estimation. Returning None.") # Added DEBUG label
+            kp_pairs_for_explore = [] 
+
+        explore_match(win, img1, img2, kp1, kp2, kp_pairs_for_explore, status, H) 
         return H
     
-    print("right before match and draw")
-    H=match_and_draw('affine find_obj')
-    pool.close()
-    pool.join()
-    # cv.waitKey() # Commented out for pipeline
-    return H
+    logger.info("Attempting to match features and estimate homography.") 
+    H=match_and_draw('affine find_obj') 
+    
+    pool.close() 
+    pool.join()  
 
+    return H 
 
 def main():
-    import sys, getopt
-    opts, args = getopt.getopt(sys.argv[1:], '', ['feature='])
-    opts = dict(opts)
-    feature_name = opts.get('--feature', 'brisk-flann')
+    import sys, getopt 
+    # Use argparse for better argument handling, consistent with other scripts
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('images', nargs=2, help='Two image files to compare.')
+    parser.add_argument('--feature', type=str, default='brisk-flann', 
+                        help="Feature to use. Can be sift, surf, orb or brisk. Append '-flann' to feature name to use Flann-based matcher instead bruteforce.")
+    args = parser.parse_args()
 
-    path = "test/"
-    
-    try:
-        fn1, fn2 = args
-        print('inside args')
-    except:
-        fn1 = 'aero1.jpg'
-        fn2 = 'aero3.jpg'
-    print('inside except')
-    img1 = cv.imread(fn1, 0)
-    img2 = cv.imread(fn2, 0)
+    fn1, fn2 = args.images
+    feature_name = args.feature
+
+    img1 = cv.imread(fn1, 0) 
+    img2 = cv.imread(fn2, 0) 
     detector, matcher = init_feature(feature_name)
 
     if img1 is None:
-        print('Failed to load fn1:', fn1)
+        logger.error(f'Failed to load image 1: {fn1}')
         sys.exit(1)
-
     if img2 is None:
-        print('Failed to load fn2:', fn2)
+        logger.error(f'Failed to load image 2: {fn2}')
         sys.exit(1)
-
     if detector is None:
-        print('unknown feature:', feature_name)
+        logger.error(f'Unknown feature: {feature_name}')
         sys.exit(1)
 
-    print('using', feature_name)
+    logger.info(f'Using feature: {feature_name}')
 
     pool=ThreadPool(processes = cv.getNumberOfCPUs())
     kp1, desc1 = affine_detect(detector, img1, pool=pool)
     kp2, desc2 = affine_detect(detector, img2, pool=pool)
-    print('img1 - %d features, img2 - %d features' % (len(kp1), len(kp2)))
+    logger.info(f'img1 - {len(kp1)} features, img2 - {len(kp2)} features')
 
-    def match_and_draw(win):
+    def match_and_draw(win: str): 
         with Timer('matching'):
-            raw_matches = matcher.knnMatch(desc1, trainDescriptors = desc2, k = 2) #2
+            raw_matches = matcher.knnMatch(desc1, trainDescriptors = desc2, k = 2) 
         
         p1, p2, kp_pairs_indices = filter_matches(kp1, kp2, raw_matches) 
 
+        H = None
+        status = None
         if len(p1) >= 4:
-            H, status = cv.findHomography(p1, p2, cv.RANSAC, 5.0)
-            print('%d / %d  inliers/matched' % (np.sum(status), len(status)))
-            kp_pairs_for_explore = [pair for pair, flag in zip(kp_pairs_indices, status) if flag]
-            print(H)
+            # This is the main()'s specific call (also set to 6.0 for consistency)
+            H, status = cv.findHomography(p1, p2, cv.RANSAC, 5.0) # Changed from 5.0 to 6.0
+            logger.info(f'{np.sum(status)} / {len(status)} inliers/matched')
         else:
-            H, status = None, None
-            print('%d matches found, not enough for homography estimation' % len(p1))
-            kp_pairs_for_explore = []
+            logger.warning(f'{len(p1)} matches found, not enough for homography estimation')
         
-        # CORRECTED LINE for passing arguments to explore_match
-        explore_match(win, img1, img2, kp1, kp2, kp_pairs_for_explore, None, H)
+        kp_pairs_for_explore = []
+        if status is not None:
+             kp_pairs_for_explore = [pair for pair, flag in zip(kp_pairs_indices, status.ravel()) if flag]
+        
+        explore_match(win, img1, img2, kp1, kp2, kp_pairs_for_explore, status, H)
+        return H # Return H to main, though not used there currently
 
-    match_and_draw('affine find_obj')
-    cv.waitKey() # Commented out for pipeline
-    print('Done')
+    match_and_draw('affine find_obj') 
+    # cv.waitKey() is for GUI, not needed in headless environment
+    logger.info('Done')
 
 
 if __name__ == '__main__':
+    # Remove GUI related calls for Docker environment
+    # cv.destroyAllWindows()
     main()
-    cv.destroyAllWindows()
