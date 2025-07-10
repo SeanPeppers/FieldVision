@@ -21,7 +21,7 @@ import cv2 as cv
 import csv
 import numpy as np
 from numpy.linalg import inv, det, cond
-from code.asift.asift import my_asift # ASIFT is used here again
+from code.asift.asift import my_asift
 from datetime import datetime
 import time
 import math
@@ -153,7 +153,7 @@ def save_tiles(mosaic_image: np.ndarray, output_dir: str, tile_size: int, base_f
             else:
                 tile_to_save = tile
 
-            tile_filename = os.path.join(tiles_output_dir, f"{base_filename}_tile_{i:04d}_{j:04d}.png")
+            tile_filename = os.path.join(tiles_output_dir, f"{base_filename}_tile_{i:04d}_{j:04d}.tif")
             try:
                 cv.imwrite(tile_filename, tile_to_save)
                 logger.debug(f"Saved tile {i},{j} to {tile_filename}")
@@ -326,7 +326,7 @@ if __name__ == '__main__':
         result, H_tp = mosaicking(image_color_original_res, result, counter, H_computed, H_tp) 
 
         counter+=1
-        output_mosaic_filename = os.path.join(save_path, f"global_mosaic_{counter:03d}.png") # Format with leading zeros
+        output_mosaic_filename = os.path.join(save_path, f"global_mosaic_{counter:03d}.tif") # Format with leading zeros
         try:
             cv.imwrite(output_mosaic_filename, result) # Saves intermediate mosaics
             logger.info(f"Intermediate mosaic saved to {output_mosaic_filename}")
@@ -339,7 +339,7 @@ if __name__ == '__main__':
     final_mosaic_filename_base = f"final_global_mosaic_{counter:03d}"
     
     # Save the full mosaic (as you currently do)
-    final_mosaic_full_path = os.path.join(save_path, f"{final_mosaic_filename_base}.png")
+    final_mosaic_full_path = os.path.join(save_path, f"{final_mosaic_filename_base}.tif")
     try:
         cv.imwrite(final_mosaic_full_path, result) # 'result' is the final mosaic image
         logger.info(f"Final global mosaic saved to {final_mosaic_full_path}")

@@ -15,7 +15,7 @@ import matplotlib
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
 np.set_printoptions(threshold=sys.maxsize)
-import traceback # <--- ADDED: For printing full stack traces on errors
+import traceback
 
 
 def move_images(image_path, save_path, homography, boundaries, duplicate, overlap):
@@ -71,14 +71,14 @@ def move_images(image_path, save_path, homography, boundaries, duplicate, overla
 
 
     group_boundary = boundaries
-    print('group boundary', group_boundary) # This is a print to stdout
+    print('group boundary', group_boundary)
     group_count = 0
     subfolder_count = 1
     boundary_idx = 0 # Use a clearer name for the index into group_boundary list
     
     # Initialize the first subfolder path
     subfolder = os.path.join(save_path, 'group_{}'.format(str(subfolder_count).zfill(3)))
-    print(f"DEBUG(split): Initial subfolder path for groups: {subfolder}", file=sys.stderr) # New debug print
+    print(f"DEBUG(split): Initial subfolder path for groups: {subfolder}", file=sys.stderr) 
     
     i = 0 # Current image index being processed
     start = 0 # Start index for slicing homographies
@@ -90,7 +90,7 @@ def move_images(image_path, save_path, homography, boundaries, duplicate, overla
         # This check is done when group_count is 0, meaning it's a new group
         if group_count == 0 and not os.path.exists(subfolder):
             os.makedirs(subfolder)
-            print(f"DEBUG(split): Created group subfolder: {subfolder}", file=sys.stderr) # Debug print for folder creation
+            print(f"DEBUG(split): Created group subfolder: {subfolder}", file=sys.stderr)
 
         destination_path = os.path.join(subfolder, filename)
         
@@ -134,7 +134,7 @@ def move_images(image_path, save_path, homography, boundaries, duplicate, overla
 
             try:
                 # Write the sliced homographies to the group-specific CSV
-                with open(group_hm_filepath, 'a', newline='') as f1: # Added newline='' for better CSV handling
+                with open(group_hm_filepath, 'a', newline='') as f1: #newline='' for better CSV handling
                     wr = csv.writer(f1, delimiter=",", quoting = csv.QUOTE_NONE)
                     for h_each_save in h_temp:
                         wr.writerow(h_each_save)
@@ -255,13 +255,11 @@ if __name__ == '__main__':
 
         angle_diffs = np.asarray(angle_diffs)
         
-        # --- NEW DEBUG PRINTS START ---
         print(f"DEBUG(split main): Angle diffs (first 10): {angle_diffs[:10]}", file=sys.stderr)
         print(f"DEBUG(split main): Angle diffs (last 10): {angle_diffs[-10:]}", file=sys.stderr)
         print(f"DEBUG(split main): Length of angle_diffs: {len(angle_diffs)}", file=sys.stderr)
         print(f"DEBUG(split main): Mean of angle_diffs: {np.mean(angle_diffs):.4f}", file=sys.stderr)
         print(f"DEBUG(split main): Std Dev of angle_diffs: {np.std(angle_diffs):.4f}", file=sys.stderr)
-        # --- NEW DEBUG PRINTS END ---
 
         thresh = find_threshold(angle_diffs)
         print(f"DEBUG(split main): Calculated threshold for peaks: {thresh:.4f}", file=sys.stderr) # Formatted for clarity

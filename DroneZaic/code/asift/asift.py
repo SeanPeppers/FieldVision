@@ -14,12 +14,11 @@ USAGE
   Press left mouse button on a feature point to see its matching point.
 '''
 
-# Python 2/3 compatibility
 from __future__ import print_function
 
 import numpy as np
 import cv2 as cv
-import logging # Added logging
+import logging 
 
 # built-in modules
 import itertools as it
@@ -28,9 +27,8 @@ import sys # For sys.exit in main()
 
 # local modules
 from .common import Timer
-from .find_obj import init_feature, filter_matches, explore_match # ensure find_obj is updated as well
+from .find_obj import init_feature, filter_matches, explore_match
 
-# Configure logging for asift.py
 logger = logging.getLogger(__name__) # Use __name__ to get a logger specific to this module
 logger.setLevel(logging.DEBUG) # Set to DEBUG to see all detailed prints
 handler = logging.StreamHandler(sys.stdout) # Output logs to stdout
@@ -88,14 +86,12 @@ def affine_detect(detector: cv.Feature2D, img: np.ndarray, mask: np.ndarray = No
         timg, tmask, Ai = affine_skew(t, phi, img)
         keypoints, descrs = detector.detectAndCompute(timg, tmask)
 
-        # --- DEBUG PRINTS START (Uncommented and Enhanced) ---
         if keypoints:
-            logger.debug(f"(affine_detect.f) t={t:.2f}, phi={phi:.1f}, Detected {len(keypoints)} keypoints.") # ADDED: t, phi values
+            logger.debug(f"(affine_detect.f) t={t:.2f}, phi={phi:.1f}, Detected {len(keypoints)} keypoints.")
             if len(keypoints) == 0:
                 logger.debug(f"(affine_detect.f) t={t:.2f}, phi={phi:.1f}, Keypoints list is empty.") #
         else:
             logger.debug(f"(affine_detect.f) t={t:.2f}, phi={phi:.1f}, No keypoints detected (None returned).") #
-        # --- DEBUG PRINTS END ---
         
         for kp in keypoints:
             x, y = kp.pt
@@ -134,12 +130,12 @@ def my_asift(img1: np.ndarray, img2: np.ndarray) -> np.ndarray:
     
     kp1, desc1 = affine_detect(detector, img1, pool=pool)
     kp2, desc2 = affine_detect(detector, img2, pool=pool)
-    logger.debug(f"my_asift: Total {len(kp1)} kps from img1, Total {len(kp2)} kps from img2 across all affine transforms.") # ADDED
+    logger.debug(f"my_asift: Total {len(kp1)} kps from img1, Total {len(kp2)} kps from img2 across all affine transforms.")
 
     # Ensure descriptors exist and are valid for matching
     # A minimum of 4 keypoints is needed for homography calculation.
     if desc1.size == 0 or desc2.size == 0 or len(kp1) < 4 or len(kp2) < 4: 
-        logger.warning("my_asift: Insufficient keypoints/descriptors for matching after affine detection. Returning None.") # ADDED
+        logger.warning("my_asift: Insufficient keypoints/descriptors for matching after affine detection. Returning None.")
         pool.close()
         pool.join()
         return None
@@ -149,28 +145,27 @@ def my_asift(img1: np.ndarray, img2: np.ndarray) -> np.ndarray:
             # Match descriptors using k-NN approach with k=2 for ratio test
             raw_matches = matcher.knnMatch(desc1, trainDescriptors = desc2, k = 2) 
         
-        logger.debug(f"my_asift: Found {len(raw_matches)} raw matches from knnMatch.") # ADDED
+        logger.debug(f"my_asift: Found {len(raw_matches)} raw matches from knnMatch.") 
 
         # This calls filter_matches from find_obj.py, which has the ratio parameter
         # Ratio is 0.75 by default in find_obj.py
         p1, p2, kp_pairs_indices = filter_matches(kp1, kp2, raw_matches) 
 
-        logger.debug(f"my_asift: Found {len(p1)} filtered matches after ratio test.") # ADDED
+        logger.debug(f"my_asift: Found {len(p1)} filtered matches after ratio test.") 
 
         H = None
         status = None
         if len(p1) >= 4:
-            # UPDATED: Adjusted reprojThresh for RANSAC here within my_asift (based on user's test: 6.0)
-            H, status = cv.findHomography(p1, p2, cv.RANSAC, 5.0) # Changed from 5.0 to 6.0
+            H, status = cv.findHomography(p1, p2, cv.RANSAC, 5.0)
             
             if H is not None:
-                logger.debug(f"my_asift: {np.sum(status)} / {len(status)} inliers/matched after findHomography.") # ADDED
+                logger.debug(f"my_asift: {np.sum(status)} / {len(status)} inliers/matched after findHomography.") 
             else:
-                logger.warning("my_asift: cv.findHomography returned None (H is None).") # ADDED
+                logger.warning("my_asift: cv.findHomography returned None (H is None).") 
 
             kp_pairs_for_explore = [pair for pair, flag in zip(kp_pairs_indices, status.ravel()) if flag] # status is a column vector
         else:
-            logger.warning(f"my_asift: {len(p1)} filtered matches found, not enough (need >= 4) for homography estimation. Returning None.") # Added DEBUG label
+            logger.warning(f"my_asift: {len(p1)} filtered matches found, not enough (need >= 4) for homography estimation. Returning None.")
             kp_pairs_for_explore = [] 
 
         explore_match(win, img1, img2, kp1, kp2, kp_pairs_for_explore, status, H) 
@@ -226,8 +221,7 @@ def main():
         H = None
         status = None
         if len(p1) >= 4:
-            # This is the main()'s specific call (also set to 6.0 for consistency)
-            H, status = cv.findHomography(p1, p2, cv.RANSAC, 5.0) # Changed from 5.0 to 6.0
+            H, status = cv.findHomography(p1, p2, cv.RANSAC, 5.0)
             logger.info(f'{np.sum(status)} / {len(status)} inliers/matched')
         else:
             logger.warning(f'{len(p1)} matches found, not enough for homography estimation')
@@ -237,7 +231,7 @@ def main():
              kp_pairs_for_explore = [pair for pair, flag in zip(kp_pairs_indices, status.ravel()) if flag]
         
         explore_match(win, img1, img2, kp1, kp2, kp_pairs_for_explore, status, H)
-        return H # Return H to main, though not used there currently
+        return H
 
     match_and_draw('affine find_obj') 
     # cv.waitKey() is for GUI, not needed in headless environment

@@ -1,10 +1,11 @@
-#!/usr/bin/env python VERION 4 image stitch OPENCV
+#!/usr/bin/env python VERSION 2
 
 import os
 import argparse
 from datetime import datetime
 import cv2
 import csv
+from numpy import genfromtxt
 import numpy as np
 from numpy.linalg import inv
 import time
@@ -33,7 +34,7 @@ def load_raster_transform(image_path):
 
 
 def gps_to_pixel(gps_lat, gps_lon, transform):
-    row, col = rowcol(transform, gps_lon, gps_lat) # Corrected 'lat' to 'gps_lat'
+    row, col = rowcol(transform, gps_lon, gps_lat)
     return (col, row)
 
 def pixel_to_gps(pixel_x, pixel_y, transform):
@@ -73,8 +74,6 @@ def gps_error(gps1, gps2):
     return R * c
 
 def apply_homography_to_gps(gps, H):
-    # This function might become less relevant if GPS projection is handled differently
-    # or not needed in the stitched output. Keeping for now.
     x, y = gps
     pt = np.array([x, y, 1.0], dtype=np.float64)
     pt_proj = np.dot(H, pt)
@@ -83,8 +82,6 @@ def apply_homography_to_gps(gps, H):
     return (pt_proj[0], pt_proj[1])
 
 def save_mosaic_with_gps(global_mosaic, save_path, args, gps_projected=None, gps_actual=None, final_frame_path=None):
-    # GPS features drawing will depend on how GPS points are mapped to the final mosaic
-    # by cv2.Stitcher. This part might need significant re-evaluation.
     if gps_projected and gps_actual:
         error_m = gps_error(gps_projected, gps_actual)
         print("Projected GPS:", gps_projected)
@@ -124,8 +121,7 @@ def main():
     parser.add_argument('-stop', '--stop', dest='stop', default = 10000, type=int, help="stop stitching at")
     parser.add_argument('-save_path', dest='save_path', default="results/global_mosaic", type=str, help="path to save result")
     parser.add_argument('-r', '--rho', dest='r', default=10, type=int, help="directory value")
-    # The homography argument is no longer needed for cv2.Stitcher direct use
-    # parser.add_argument('-hm', '--homography', type=str, help='txt or csv file that stores homography matrices')
+    parser.add_argument('-hm', '--homography', type=str, help='txt or csv file that stores homography matrices')
     parser.add_argument('-fname', '--fname', dest='fname', default='global_mosaic_'+datetime.now().strftime('%Y-%m-%d_%H-%M-%S'), help='desired filename for the global mosaic')
     parser.add_argument('-video', '--videos', dest = 'video', type=str, default= 'N', help='do you want to save frames addition process for videos?')
     parser.add_argument('-scale', '--scale', dest='scale', default=1, type=float, help='image size scale')
@@ -139,130 +135,379 @@ def main():
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
+
     if args.mini_mosaic:
+        #mini_path = os.path.join(args.save_path, 'old_cornet_mini_mosaics')
         mini_path = args.save_path
         if not os.path.exists(mini_path):
              os.makedirs(mini_path)
+
         save_path = mini_path
 
-    # Removed unused variables from old stitching logic
-    # result = None
-    # result_gry = None
-    # H_cum = []
-    # H=[]
-    # cor2 = []
-    # temp_c_normalized = np.zeros((3,4))
+    result = None
+    result_gry = None
 
-    stop = args.stop # Stop argument might not be directly applicable for cv2.Stitcher, it will stitch all provided images
-    # homography_matrix = args.homography # No longer used
-    
-    # Adjusted image loading to explicitly read images into a list for cv2.Stitcher
-    all_image_paths_in_group = []
-    if args.image_path and os.path.isdir(args.image_path[0]): # Expecting a single directory path
-        image_dir = args.image_path[0]
-        extensions = [".jpeg", ".jpg", ".png", ".JPG", ".tif", ".tiff"]
-        for file_name in sorted(os.listdir(image_dir), reverse=False):
-            if os.path.splitext(file_name)[1].lower() in extensions:
-                all_image_paths_in_group.append(os.path.join(image_dir, file_name))
+    '''
+    #w = 3959
+    #h = 2014
+    w = 1354
+    h = 710
+    #w = 2048
+    #h = 1080
+    #w = 1318
+    #h = 680
+
+    if args.r == 10 :
+       w = 1327#1353
+       h = 655#666
+    elif args.r == 11 or args.r == 12:
+       w = 1334
+       h = 669
     else:
-        print("ERROR: Please provide a valid directory for images when using cv2.Stitcher.", file=sys.stderr)
-        sys.exit(1)
-
-    if not all_image_paths_in_group:
-        print("ERROR: No images found in the specified directory. Exiting.", file=sys.stderr)
-        sys.exit(1)
-
-    # Load all images for the current mini-mosaic group
-    images_to_stitch = []
-    initial_img_path = all_image_paths_in_group[0] # First image to get dimensions and GPS
-    
-    # Get dimensions from the first image
-    first_img_raw = cv2.imread(initial_img_path)
-    if first_img_raw is None:
-        print(f"ERROR: Could not read the first image: {initial_img_path}. Exiting.", file=sys.stderr)
-        sys.exit(1)
-
-    h_orig, w_orig, _ = first_img_raw.shape
-    w = int(np.round(w_orig / args.scale))
-    h = int(np.round(h_orig / args.scale))
-    print(f'Original image dimensions (h, w): {h_orig} {w_orig}', file=sys.stderr)
-    print(f'Scaled image dimensions (h, w): {h} {w}', file=sys.stderr)
+       w = 1353
+       h = 666
+    '''
 
 
-    for img_path in all_image_paths_in_group:
-        img_read = cv2.imread(img_path)
-        if img_read is None:
-            print(f"WARNING: Could not read image {img_path}. Skipping it for stitching.", file=sys.stderr)
-            continue
-        # Resize images if scale is not 1.0. Stitcher works best with consistent input sizes.
-        if args.scale != 1.0:
-            img_read = cv2.resize(img_read, (w, h))
-        images_to_stitch.append(img_read)
+    stop = args.stop
+    homography_matrix = args.homography
+    image_paths = args.image_path
+    image_index = -1
+    counter = 0
 
-    if not images_to_stitch:
-        print("ERROR: No images loaded successfully for stitching. Exiting.", file=sys.stderr)
-        sys.exit(1)
 
-    print(f"Attempting to stitch {len(images_to_stitch)} images using cv2.Stitcher.", file=sys.stderr)
+    all_img = sorted([f for f in os.listdir(image_paths[0]) if f.endswith(('.png', '.jpg', '.jpeg', '.tif'))])
+    initial_img_path = os.path.join(image_paths[0], all_img[0])
+    img = cv2.imread(initial_img_path)
+    h, w, _ = img.shape
+    w = int(np.round(w/args.scale))
+    h = int(np.round(h/args.scale))
+    img = cv2.resize(img, (w,h))
+    print('Image dimensions (h, w):', h, w)
 
-    # --- CV2.Stitcher Integration ---
-    # <<<<< START OF CHANGE >>>>>
-    # Removed direct setter calls for 'setFeaturesFinder' and 'setBlender'
-    # as they caused 'AttributeError'.
-    # We will rely on default Stitcher behavior or explore other configuration methods if needed.
-    stitcher = cv2.Stitcher_create()
+    H_cum = []
+    H=[]
+    cor2 = []
 
-    # The problematic lines are commented out or removed.
-    # stitcher.setFeaturesFinder(cv2.ORB_create(nfeatures=25000))
-    # stitcher.setBlender(cv2.detail.FeatherBlender())
-    # stitcher.setWarper(cv2.PyRotationWarper("plane", 1))
-    # <<<<< END OF CHANGE >>>>>
 
-    status, global_mosaic = stitcher.stitch(images_to_stitch)
-
-    # The status codes are now directly integers returned by the stitcher.stitch method
-    # and not attributes of the cv2.Stitcher class directly in newer OpenCV versions.
-    # We compare against the numerical values which are 0 for OK, 1 for ERR_NEED_MORE_IMGS etc.
-    # Note: These integer values are consistent, but looking up the exact values in OpenCV docs
-    # or printing `cv2.Stitcher_OK` (if available in your version) for verification is good practice.
-    if status == 0: # cv2.Stitcher.OK is typically 0
-        print("Stitching successful!", file=sys.stderr)
-    elif status == 1: # cv2.Stitcher.ERR_NEED_MORE_IMGS is typically 1
-        print("Stitching failed: Need more images or insufficient overlap/features.", file=sys.stderr)
-        sys.exit(1)
-    elif status == 2: # cv2.Stitcher.ERR_HOMOGRAPHY_EST_FAIL is typically 2
-        print("Stitching failed: Homography estimation failed. Check image quality/overlap.", file=sys.stderr)
-        sys.exit(1)
-    elif status == 3: # cv2.Stitcher.ERR_CAMERA_PARAMS_ADJUST_FAIL is typically 3
-        print("Stitching failed: Camera parameters adjustment failed.", file=sys.stderr)
-        sys.exit(1)
+    if initial_img_path.lower().endswith(('.tif', '.tiff')):
+       transform = load_raster_transform(initial_img_path)
     else:
-        print(f"Stitching failed with unexpected error code: {status}", file=sys.stderr)
-        sys.exit(1)
-    # --- END CV2.Stitcher Integration ---
+       transform = None  # No transform for .jpg images
 
-    # The rest of the script needs to adapt to `global_mosaic` being the direct output
-    # The old `row,col,channel = global_mosaic.shape` and offset matrix calculations are now handled by Stitcher
-    # GPS projection logic might need to be re-evaluated as Stitcher's coordinate system is internal.
-
-    # GPS extraction for the first image (as a reference point for original location)
+    #transform = load_raster_transform(initial_img_path)
     gps_initial = extract_gps_from_image(initial_img_path)
-    # gps_projected and gps_actual logic is complex with cv2.Stitcher as it doesn't expose internal H matrices directly
-    # For initial testing, we might skip the GPS visualization part in save_mosaic_with_gps
     gps_projected = None
     gps_actual = None
+    print(gps_initial)
 
-    # The `video` argument for saving individual frames of the stitching process
-    # is not directly compatible with cv2.Stitcher's atomic operation.
-    # If this feature is critical, it would require a more complex re-implementation
-    # or finding a way to integrate with Stitcher's intermediate steps.
-    if args.video == 'Y':
-        print("WARNING: 'video' saving is not directly supported with cv2.Stitcher's atomic stitching.", file=sys.stderr)
 
-    save_mosaic_with_gps(global_mosaic, args.save_path, args, gps_projected, gps_actual, all_image_paths_in_group[-1])
+    #pred_paths = []
+    #pred_per_image = []
+    #pred_square = []
+    #pred_square_per_image = []
 
-    print("Final mosaic saved to: " + save_path, file=sys.stderr)
+
+    corners_h = []
+    corners_4 = np.array([[1,1], [w,1],[w,h],[1,h]], dtype=np.float32)
+    #print(corners_4)
+    temp_c_normalized = np.zeros((3,4))
+
+    with open(homography_matrix, 'r') as csvFile:
+        reader = csv.reader(csvFile, delimiter = ",")
+
+        for row in reader:
+            H_each = np.asarray(row, dtype=float).reshape(3,3) # Changed np.float to float
+
+            H.append(H_each)
+
+            #print(H_each)
+
+            # --- START OF CHANGE ---
+            if counter == 0:
+               # For the first image (Image_0), the cumulative homography relative to itself is Identity.
+               # This ensures Image_0 is placed without transformation (apart from the global offset).
+               H_temp = np.identity(3, dtype=np.float32) # <<<<< THIS IS THE CHANGE <<<<<
+               #H_temp = H_temp/H_temp[2,2] # Normalization usually happens automatically in perspectiveTransform if needed.
+               H_cum.append(H_temp)
+
+            elif counter > 0 :
+               # H[counter-1] is the homography from Image_(counter-1) to Image_counter.
+               # H_cum[counter-1] is the cumulative homography from Image_0 to Image_(counter-1).
+               # To get Image_0 to Image_counter, we chain: (Image_0 to Image_(counter-1)) @ (Image_(counter-1) to Image_counter)
+               H_temp = np.dot(H_cum[counter-1], H[counter-1]) # <<<<< THIS IS THE CHANGE <<<<<
+               # Corrected index: H[counter-1] is the homography for the current 'image_index' (which is 'counter').
+               # The 'H' list is 0-indexed corresponding to H_0_to_1, H_1_to_2, etc.
+               # So, for image_index '1' (counter '1'), we need H[0]. For image_index 'N' (counter 'N'), we need H[N-1].
+               # So, H_temp = np.dot((H_cum[counter-1]), H[counter-1]) is correct for chaining.
+
+               #H_temp = H_temp/H_temp[2,2]
+               H_cum.append(H_temp)
+            # --- END OF CHANGE ---
+
+            if counter == stop:
+               break
+
+            #print(counter)
+            #print(H_temp)
+
+            #corner_temp = cv2.perspectiveTransform(corners_4.reshape((-1,1,2)), (H_cum[counter]))
+            #print(corner_temp)
+            #corners_h.append(corner_temp/[corner_temp[2,:] ,corner_temp[2,:], corner_temp[2,:], corner_temp[2,:]])
+            corners_h.append(cv2.perspectiveTransform(corners_4.reshape((-1,1,2)), (H_cum[counter])))
+
+            counter = counter+1
+            #print('corners after warped:', corners_h[counter-1])
+    H_cum_new = np.asarray(H_cum)
+    corners_h_arr = np.asarray(corners_h)
+
+    #x = width= col; y=hight=row
+    max_x = np.max(corners_h_arr[...,0].flatten())
+    min_x = np.min(corners_h_arr[...,0].flatten())
+
+    max_y = np.max(corners_h_arr[...,1].flatten())
+    min_y = np.min(corners_h_arr[...,1].flatten())
+
+    #print(max_x, min_x, max_y, min_y)
+
+    if min_x<=0:
+       offset_x = np.ceil(-(min_x))
+       max_x += -min_x
+    else:
+       offset_x = 0#np.ceil(min_x)
+       #max_x += 0#min_x
+
+    if min_y<=0:
+       offset_y = np.ceil(-(min_y))
+       max_y += -min_y
+    else:
+       offset_y = 0#np.ceil(min_y)
+       #max_y += 0#min_y
+
+
+
+    offset_matrix = np.matrix(np.identity(3), np.float32)
+    offset_matrix[0,2] = offset_x
+    offset_matrix[1,2] = offset_y
+    print(offset_matrix)
+
+
+    #print(np.ceil(max_x+offset_x))
+    #define global mosaic
+    global_mosaic = np.zeros((int(np.floor(max_x)),int(np.floor(max_y)), 3), np.uint8)
+    print('global mosaic size: ', np.shape(global_mosaic))
+
+    row,col,channel = global_mosaic.shape
+    mask = np.ones((col,row), np.uint8)
+    mask = mask*255
+    #save_mosaic = np.zeros((int(np.floor(max_y))+h,int(np.floor(max_x))+w, 3), np.uint8)
+    nh = (int(np.floor(max_y))+h)
+    nw = (int(np.floor(max_x))+w)
+    if (nh % 2) != 0:
+       nh = nh + 1
+
+
+    if (nw % 2) != 0:
+       nw = nw + 1
+
+    save_mosaic = np.zeros((nh,nw, 3), np.uint8)
+
+    r,c,ch = save_mosaic.shape
+    pred = ".txt"
+
+    #print(mask)
+    #print(row, col)
+    for image_path in image_paths:
+        if not os.path.exists(image_path):
+            print('{0} path does not exists'.format(image_path))
+            continue
+        if os.path.isdir(image_path):
+            extensions = [".jpeg", ".jpg", ".png", ".JPG", ".tif", ".tiff"]
+            #extensions = [".png"]
+
+            for file_path in sorted(os.listdir(image_path), reverse=False):
+                if os.path.splitext(file_path)[1].lower() in extensions:
+                    image_paths.append(os.path.join(image_path, file_path))
+
+
+                #if os.path.splitext(file_path)[1].lower() in pred:
+                #    pred_paths.append(os.path.join(image_path, file_path))
+            continue
+
+
+
+
+        '''
+        #read the prediction txt file
+        pred_file = os.path.splitext(image_path)[0]+pred
+
+        with open(pred_file, 'r') as csvFile2:
+
+
+
+            bbox = csv.reader(csvFile2, delimiter = " ")
+            pred_per_image = []
+
+            for row_pred in bbox:
+                if not ''.join(row_pred).strip():
+                   continue
+                else:
+                   pred_each = row_pred
+                   #pred_each = np.asarray(row_pred, dtype=np.float).reshape(1,6)
+                   pred_per_image.append(pred_each)
+                   #print(pred_each)
+
+        pred_per_image = np.asarray(pred_per_image, dtype=np.float)#.reshape(np.squeeze(pred_per_image, axis=1).shape)
+
+
+        pred_per_image[:,1] = pred_per_image[:,1]*w
+        pred_per_image[:,2] = pred_per_image[:,2]*h
+        pred_per_image[:,3] = pred_per_image[:,3]*w
+        pred_per_image[:,4] = pred_per_image[:,4]*h
+
+
+
+        pred_square_per_image = np.asarray(copy.deepcopy(pred_per_image))
+        #pred_square_per_image[:,0] = pred_per_image[:,0]
+        pred_square_per_image[:,1] = np.round(pred_square_per_image[:,1]-pred_square_per_image[:,3]/2)
+        pred_square_per_image[:,2] = np.round(pred_square_per_image[:,2]-pred_square_per_image[:,4]/2)
+        pred_square_per_image[:,3] = np.round(pred_square_per_image[:,1]+pred_square_per_image[:,3]/2)
+        pred_square_per_image[:,4] = np.round(pred_square_per_image[:,2]+pred_square_per_image[:,4]/2)
+
+
+
+        squares = np.array([pred_square_per_image[:,1],pred_square_per_image[:,2], pred_square_per_image[:,3],pred_square_per_image[:,2], pred_square_per_image[:,3],pred_square_per_image[:,4], pred_square_per_image[:,1],pred_square_per_image[:,4]]).T
+        squares = squares.reshape(-1,4,2)
+        squares = squares.tolist()
+
+        #np.concatenate((np.concatenate(([pred_square_per_image[:,1]].T,[pred_square_per_image[:,2]].T), axis=1), np.concatenate((pred_square_per_image[:,3],pred_square_per_image[:,2]), axis=1), np.concatenate((pred_square_per_image[:,3],pred_square_per_image[:,4]), axis=1), np.concatenate((pred_square_per_image[:,1],pred_square_per_image[:,4]), axis=1)), axis = 1)
+        #np.array([[pred_square_per_image[:,:,1],pred_square_per_image[:,:,2]], [pred_square_per_image[:,:,3],pred_square_per_image[:,:,2]], [pred_square_per_image[:,:,3],pred_square_per_image[:,:,4]], [pred_square_per_image[:,:,1],pred_square_per_image[:,:,4]]])
+        '''
+
+        image_rgb = cv2.imread(image_path)
+        image_rgb = cv2.resize(image_rgb, (w,h))
+        print(image_path)
+        image_gray = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2GRAY)
+
+        print(image_index)
+        pred_mosaic=[]
+
+        if image_index == -1:
+            print("this is execurted")
+            global_mosaic = cv2.warpPerspective(image_rgb, offset_matrix, (row, col))
+
+            #[pred_mosaic.append(cv2.perspectiveTransform(np.array(square).reshape((-1,1,2)), offset_matrix)) for square in squares]
+
+            cor2.append(cv2.perspectiveTransform(corners_4.reshape((-1,1,2)), offset_matrix))
+
+            '''
+             #put prediction to global coordinate
+
+            prediction_global = np.asarray(copy.deepcopy(pred_per_image))
+            prediction_global[:,3] = np.round(pred_mosaic[:,2,0]-pred_mosaic[:,0,0])
+            prediction_global[:,4] = np.round(pred_mosaic[:,2,1]-pred_mosaic[:,0,1])
+            prediction_global[:,1] = np.round(pred_mosaic[:,0,0]+prediction_global[:,3]/2)
+            prediction_global[:,2] = np.round(pred_mosaic[:,0,1]+prediction_global[:,4]/2)
+            '''
+
+        else:
+            wrapped = cv2.warpPerspective(image_rgb, np.dot(offset_matrix,(H_cum_new[image_index])), (row, col))
+
+
+            #pred_mosaic.append(cv2.perspectiveTransform(np.array(square).reshape(-1,1,2)), np.dot(offset_matrix,(H_cum_new[image_index]))) for square in squares)
+
+
+            (ret,data_map) = cv2.threshold(cv2.cvtColor(wrapped, cv2.COLOR_BGR2GRAY), 0, 255, cv2.THRESH_BINARY)
+            data_map = cv2.erode(data_map, np.ones((10,10), np.uint8))
+            temp = cv2.add(global_mosaic, 0,  mask=np.bitwise_not(data_map), dtype=cv2.CV_8U)
+            wrapped = cv2.add(wrapped, 0, mask = data_map, dtype=cv2.CV_8U)
+            global_mosaic = cv2.add(temp, wrapped, dtype=cv2.CV_8U)
+            cor2.append(cv2.perspectiveTransform(corners_4.reshape((-1,1,2)), np.dot(offset_matrix,(H_cum_new[image_index]))))
+
+            '''
+            #put prediction to global coordinate
+            prediction_global_temp = np.asarray(copy.deepcopy(pred_per_image))
+            prediction_global_temp[:,3] = np.round(pred_mosaic[:,2,0]-pred_mosaic[:,0,0])
+            prediction_global_temp[:,4] = np.round(pred_mosaic[:,2,1]-pred_mosaic[:,0,1])
+            prediction_global_temp[:,1] = np.round(pred_mosaic[:,0,0]+prediction_global[:,3]/2)
+            prediction_global_temp[:,2] = np.round(pred_mosaic[:,0,1]+prediction_global[:,4]/2)
+
+            prediction_global = np.concatenate((prediction_global, prediction_global_temp),axis=0)
+            '''
+
+        if gps_initial and image_index >= 0:
+            gps_projected = apply_homography_to_gps(gps_initial, np.dot(np.identity(3), H_cum_new[image_index]))
+            print("Projected GPS for image %d: %s" % (image_index, str(gps_projected)))
+
+            # Apply GPS to Pixel Projection only if transform exists (i.e., for .tiff files)
+            if transform is not None:
+                try:
+                    pixel_coords = gps_to_pixel(gps_projected[0], gps_projected[1], transform)
+                    print("Projected Pixel Coordinates for image %d: %s" % (image_index, str(pixel_coords)))
+                except Exception as e:
+                    print("Error in GPS to Pixel conversion: %s" % str(e))
+            else:
+                print("Skipping GPS to Pixel conversion for this image as no transform is available.")
+
+
+
+        if image_index == stop - 1:
+            gps_actual = extract_gps_from_image(image_path)
+            print("Actual GPS from last image: %s" % str(gps_actual))
+        image_index += 1
+
+
+        #display every new frame is added
+        # display_mosaic('mosaic_global_process', global_mosaic) # Commented out to prevent display issues
+
+
+        if args.video == 'Y':
+
+            #save each frame for mosaic
+            save_mosaic[0:col, 0:row, :] = global_mosaic
+            save_mosaic[col:col+h, row:row+w] = image_rgb
+
+
+            save_mosaic = cv2.polylines(save_mosaic, np.int32([cor2[image_index]]), 1, (0,0,255), 10)
+            save_mosaic = cv2.rectangle(save_mosaic, ( c-w, r-h), (c-10, r-10), (0,0,255), 10)
+            save_mosaic = cv2.putText(save_mosaic, 'CurrentFrame_#{0:0=4d}'.format(image_index+1), (c-w, r-h-10), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,255,255), 3, cv2.LINE_AA)
+
+            # cv2.waitKey(200) # Commented out to prevent display issues
+
+
+
+            cv2.imwrite(save_path +"mosaic{:04d}.png".format(image_index), save_mosaic)
+            save_mosaic = save_mosaic-save_mosaic
+
+
+        if image_index == stop-1:
+            cv2.imwrite(save_path + "global_"+datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + ".png", global_mosaic)
+            break
+    '''
+    if gps_projected and gps_actual:
+        error_m = gps_error(gps_projected, gps_actual)
+        print("Projected GPS:", gps_projected)
+        print("Actual GPS:", gps_actual)
+        print("GPS Error (meters):", error_m)
+
+
+        #now lets draw the projected and the actual on global
+        proj_x, proj_y = int(gps_projected[0]), int(gps_projected[1])
+        cv2.circle(global_mosaic, (proj_x, proj_y), 10, (0, 255, 255), -1)
+
+
+        if gps_actual:
+            act_x, act_y = int(gps_actual[0]), int(gps_actual[1])
+            cv2.rectangle(global_mosaic, (act_x-10, act_y-10), (act_x+10, act_y+10), (0, 0, 255), 3)
+    '''
+
+    save_mosaic_with_gps(global_mosaic, args.save_path, args, gps_projected, gps_actual, image_path)
+
+    print(save_path)
+    #cv2.imwrite(save_path, global_mosaic)
     cv2.imwrite(os.path.join(save_path, datetime.now().strftime('%Y-%m-%d_%H-%M-%S')+"_" + args.fname + ".png"), global_mosaic)
+    #cv2.imwrite("result/corn_174_3fps_358/result_corn_174_all{:d}.png".format(image_index), (global_mosaic))
+
 
 
 if __name__ == '__main__':
