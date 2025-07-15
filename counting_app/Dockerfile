@@ -12,7 +12,7 @@ WORKDIR /app
 # libglib2.0-0: Provides libgthread-2.0.so.0, another common dependency for OpenCV.
 # git: Required to clone repositories specified in requirements.txt (e.g., ultralytics/CLIP.git).
 # rm -rf /var/lib/apt/lists/*: Cleans up apt caches to keep the image size small.
-RUN apt-get update && apt-get install -y libgl1-mesa-glx libsm6 libxext6 libglib2.0-0 git && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y libgl1-mesa-glx libsm6 libxext6 libglib2.0-0 git unzip curl && rm -rf /var/lib/apt/lists/*
 
 # Copy the requirements file into the container at /app
 COPY requirements.txt .

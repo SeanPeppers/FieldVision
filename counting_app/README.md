@@ -1,6 +1,4 @@
-
-# Define the markdown content
-markdown_content = """# YOLO11 Object Counting API
+# YOLO11 Object Counting API
 
 This project provides a production-ready FastAPI application for performing object counting in video files using Ultralytics YOLO11. It allows you to upload a video, process it with a pre-trained YOLO model, and receive an output video with detected and counted objects.
 
@@ -15,10 +13,10 @@ This project provides a production-ready FastAPI application for performing obje
   - [Local Setup (Without Docker)](#local-setup-without-docker)
   - [Docker Setup](#docker-setup)
 - [API Usage](#api-usage)
-  - [Endpoint](#endpoint)
-  - [Example Request](#example-request)
-  - [Example Response](#example-response)
-- [Model and Configuration](#model-and-configuration)
+  - [Root Endpoint](#root-endpoint)
+  - [Predict Endpoint](#predict-endpoint)
+  - [Fine-tune Endpoint](#fine-tune-endpoint)
+  - [Status Endpoint](#status-endpoint)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [License](#license)
@@ -27,6 +25,7 @@ This project provides a production-ready FastAPI application for performing obje
 
 ## Project Structure
 
+*(Add details about the project structure here.)*
 
 ---
 
@@ -144,28 +143,175 @@ You can run this application either directly on your machine or using Docker.
 
 ---
 
-## API Usage check available API endponts at 
-```
- "http://localhost:8000/docs" 
-```
-### Endpoint
+## API Usage
 
-```http
-POST /predict
-Example Request
+Once the Docker container is running, the API is accessible at [http://localhost:8000](http://localhost:8000). View the interactive Swagger UI at [http://localhost:8000/docs](http://localhost:8000/docs).
 
+### Root Endpoint
+
+Confirms the API is running.
+
+- **URL**: `/`
+- **Method**: `GET`
+- **Response**:
+
+    ```json
+    {
+      "message": "Welcome to the YOLO11 Object Counting API. Use /predict to process videos or /finetune to fine-tune the model."
+    }
+    ```
+
+---
+
+### Predict Endpoint
+
+Initiates asynchronous object counting from an uploaded video, optionally using a fine-tuned model.
+
+- **URL**: `/predict`
+- **Method**: `POST`
+- **Parameters**:
+  - `file` (File, required): Video file to upload.
+  - `model_name` (Form, optional): Name of a fine-tuned model (e.g., `maize_plant_detector`). Defaults to `yolo11n.pt` if not provided.
+- **Response** (202 Accepted):
+
+    ```json
+    {
+      "status": "accepted",
+      "message": "Video processing job started. Check status using the job ID.",
+      "job_id": "a1b2c3d4-e5f6-7899-1234-567890abcdef",
+      "model_name_used": "maize_plant_detector" // Or "default" if no model_name was provided
+    }
+    ```
+
+#### Example Usage (using `curl`)
+
+Using the default model:
+
+```bash
 curl -X POST "http://localhost:8000/predict" \
      -H "accept: application/json" \
      -H "Content-Type: multipart/form-data" \
-     -F "file=@data/videos/solutions-ci-demo.mp4"
+     -F "file=@/path/to/your/video.mp4"
 ```
 
-Example Response
+(Replace `/path/to/your/video.mp4` with the actual path to your video file on your host machine.)
 
+Using a fine-tuned model (e.g., `maize_plant_detector`):
+
+```bash
+curl -X POST "http://localhost:8000/predict" \
+     -H "accept: application/json" \
+     -H "Content-Type: multipart/form-data" \
+     -F "file=@/path/to/your/video.mp4" \
+     -F "model_name=maize_plant_detector"
 ```
-{
-  "status": "success",
-  "message": "Object counting completed successfully.",
-  "output_video_location": "data/output/counted_YYYYMMDDHHMMSS_your_video.mp4"
-}
+
+---
+
+### Fine-tune Endpoint
+
+Initiates asynchronous YOLO model fine-tuning with a custom dataset.
+
+- **URL**: `/finetune`
+- **Method**: `POST`
+- **Parameters** (Form):
+  - `dataset_download_url` (string, required): Public URL of YOLO-compatible dataset (.zip with data.yaml at root).
+  - `epochs` (integer, optional, default: 5): Number of training epochs.
+  - `model_name` (string, optional, default: 'custom_yolo_model'): Unique name for the fine-tuned model, stored under data/finetuned_models/.
+- **Response** (202 Accepted):
+
+    ```json
+    {
+      "status": "accepted",
+      "message": "Model fine-tuning job started. Check status using the job ID.",
+      "job_id": "e5f6-7890-1234-567890abcdef-a1b2c3d4",
+      "model_name": "maize_plant_detector" # The name provided for the fine-tuned model
+    }
+    ```
+
+#### Example Usage (using `curl`)
+
+```bash
+curl -X POST "http://localhost:8000/finetune" \
+     -H "accept: application/json" \
+     -H "Content-Type: application/x-www-form-urlencoded" \
+     -d "dataset_download_url=https://app.roboflow.com/ds/KEC0zfNa50?key=vD5a0QNRsA" \
+     -d "epochs=5" \
+     -d "model_name=maize_plant_detector"
 ```
+
+(Replace the `dataset_download_url` with your actual Roboflow direct download link.)
+
+---
+
+### Status Endpoint
+
+Checks the current status of a video processing or model fine-tuning job.
+
+- **URL**: `/status/{job_id}`
+- **Method**: `GET`
+- **URL Parameters**:
+  - `job_id` (string, required): Unique ID returned by `/predict` or `/finetune`.
+- **Response** (200 OK):
+
+  Pending/Processing:
+
+    ```json
+    {
+      "status": "PROCESSING",
+      "message": "Video processing in progress.",
+      "progress": "50%",
+      "current_frame": 150,
+      "total_frames": 300
+    }
+    ```
+
+    (or similar for fine-tuning, with `current_epoch`, `total_epochs`, `metrics`)
+    Note: When pending/processing, includes `Retry-After: 5` header for polling.
+
+  Completed (Prediction):
+
+    ```json
+    {
+      "status": "COMPLETED",
+      "message": "Object counting completed successfully.",
+      "output_video_location": "data/output/counted_20250715123456_my_video.mp4",
+      "progress": "100%"
+    }
+    ```
+
+  Completed (Fine-tuning):
+
+    ```json
+    {
+      "status": "COMPLETED",
+      "message": "Model fine-tuning completed successfully. Use the 'model_name' parameter in /predict to use this model.",
+      "fine_tuned_model_path": "data/finetuned_models/maize_plant_detector/weights/best.pt",
+      "progress": "100%"
+    }
+    ```
+
+  Failed:
+
+    ```json
+    {
+      "status": "FAILED",
+      "message": "An error occurred during video processing.",
+      "error": "Details of the error message.",
+      "progress": "Error"
+    }
+    ```
+
+  Job ID Not Found (404 Not Found):
+
+    ```json
+    {"detail": "Job ID not found."}
+    ```
+
+#### Example Usage (using `curl`)
+
+```bash
+curl -X GET "http://localhost:8000/status/a1b2c3d4-e5f6-7899-1234-567890abcdef" \
+     -H "accept: application/json"
+```
+
