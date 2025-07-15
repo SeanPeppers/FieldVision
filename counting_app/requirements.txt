@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+ultralytics
+python-multipart
+opencv-python
+git+https://github.com/ultralytics/CLIP.git
