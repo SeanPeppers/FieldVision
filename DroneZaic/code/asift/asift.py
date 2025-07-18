@@ -156,7 +156,7 @@ def my_asift(img1: np.ndarray, img2: np.ndarray) -> np.ndarray:
         H = None
         status = None
         if len(p1) >= 4:
-            H, status = cv.findHomography(p1, p2, cv.RANSAC, 5.0)
+            H, status = cv.findHomography(p1, p2, cv.RANSAC, 7.0)
             
             if H is not None:
                 logger.debug(f"my_asift: {np.sum(status)} / {len(status)} inliers/matched after findHomography.") 
@@ -221,7 +221,7 @@ def main():
         H = None
         status = None
         if len(p1) >= 4:
-            H, status = cv.findHomography(p1, p2, cv.RANSAC, 5.0)
+            H, status = cv.findHomography(p1, p2, cv.RANSAC, 7.0)
             logger.info(f'{np.sum(status)} / {len(status)} inliers/matched')
         else:
             logger.warning(f'{len(p1)} matches found, not enough for homography estimation')

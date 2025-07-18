@@ -16,12 +16,36 @@ matplotlib.use('agg')
 import matplotlib.pyplot as plt
 np.set_printoptions(threshold=sys.maxsize)
 import traceback
+import subprocess # NEW: Import subprocess for calling external commands
+
+# NEW: Function to preserve EXIF data using exiftool (copied for self-containment)
+def preserve_exif_data_split(original_file_path, new_file_path):
+    """
+    Copies all EXIF/metadata from the original_file_path to the new_file_path
+    using the exiftool command-line utility.
+    """
+    try:
+        command = ['exiftool', '-tagsFromFile', original_file_path, '-all:all', '-overwrite_original', '-q', new_file_path]
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
+        # Logging here can be useful for debugging, but split_for_mini has its own stdout for debug messages
+        # print(f"DEBUG(split_exif): EXIF copy successful from {os.path.basename(original_file_path)} to {os.path.basename(new_file_path)}", file=sys.stderr)
+        if result.stderr:
+            print(f"WARNING(split_exif): exiftool stderr: {result.stderr.strip()}", file=sys.stderr)
+
+    except FileNotFoundError:
+        print("ERROR(split_exif): 'exiftool' command not found. Please install exiftool.", file=sys.stderr)
+        print(f"  EXIF data NOT preserved for {os.path.basename(new_file_path)}.", file=sys.stderr)
+    except subprocess.CalledProcessError as e:
+        print(f"ERROR(split_exif): exiftool failed for {os.path.basename(new_file_path)}: {e.stderr.strip()}", file=sys.stderr)
+        print(f"  EXIF data NOT preserved for {os.path.basename(new_file_path)}.", file=sys.stderr)
+    except Exception as e:
+        print(f"ERROR(split_exif): Unexpected error during EXIF copy for {os.path.basename(new_file_path)}: {e}", file=sys.stderr)
+        print(f"  EXIF data NOT preserved for {os.path.basename(new_file_path)}.", file=sys.stderr)
 
 
-def move_images(image_path, save_path, homography, boundaries, duplicate, overlap):
+def move_images(image_path_list, save_path, homography, boundaries, duplicate, overlap): # Renamed image_path to image_path_list for clarity
     image_files = []
-    # prev_images = [] # Unused
-    H = [] # This will store the loaded homographies from the main H_surf.csv
+    H = [] 
 
     # Ensure the base save_path exists (e.g., outputs/surf_mini_partition)
     if not os.path.exists(save_path):
@@ -30,11 +54,11 @@ def move_images(image_path, save_path, homography, boundaries, duplicate, overla
 
 
     # --- Load image files from the provided image_path(s) ---
-    # The image_path argument is a list of paths. Handle each one.
-    # Assuming image_path[0] will be the directory containing the frames (e.g., outputs/calibrated_frames/DJI_0604_frames)
-    for img_p in image_path:
+    # The image_path_list argument is a list of paths. Handle each one.
+    # Assuming image_path_list[0] will be the directory containing the frames (e.g., outputs/calibrated_frames)
+    for img_p in image_path_list:
         if os.path.isdir(img_p):
-            extensions = [".jpeg", ".jpg", ".png", ".tif"]
+            extensions = [".jpeg", ".jpg", ".png", ".tif", ".tiff"] # Added .tiff for robustness
             for file_path in sorted(os.listdir(img_p)):
                 if os.path.splitext(file_path)[1].lower() in extensions:
                     image_files.append(os.path.join(img_p, file_path))
@@ -50,13 +74,13 @@ def move_images(image_path, save_path, homography, boundaries, duplicate, overla
     # --- Load Homography matrices from the provided homography CSV ---
     print(f"DEBUG(split): Loading homographies from: {homography}", file=sys.stderr)
     try:
-        with open(homography, 'r') as csvFile:
+        with open(homography, 'r', newline='') as csvFile: # Added newline=''
             reader = csv.reader(csvFile, delimiter = ",")
             for row in reader:
                 if row: # Ensure row is not empty before attempting conversion
-                    H_each = np.array(row).astype(np.float64)
-                    flattened_list = H_each.ravel().tolist()
-                    H.append(flattened_list)
+                    # Homographies are 1x9 flat arrays, so no need for reshape here
+                    H_each = [float(val) for val in row] # Convert elements to float
+                    H.append(H_each)
         print(f"DEBUG(split): Successfully loaded {len(H)} homography rows from {homography}.", file=sys.stderr)
         if not H:
             print(f"WARNING(split): Homography file {homography} was empty or contained no valid data. This might lead to empty group CSVs.", file=sys.stderr)
@@ -71,7 +95,7 @@ def move_images(image_path, save_path, homography, boundaries, duplicate, overla
 
 
     group_boundary = boundaries
-    print('group boundary', group_boundary)
+    print(f'DEBUG(split): Group boundaries: {group_boundary}', file=sys.stderr)
     group_count = 0
     subfolder_count = 1
     boundary_idx = 0 # Use a clearer name for the index into group_boundary list
@@ -80,8 +104,8 @@ def move_images(image_path, save_path, homography, boundaries, duplicate, overla
     subfolder = os.path.join(save_path, 'group_{}'.format(str(subfolder_count).zfill(3)))
     print(f"DEBUG(split): Initial subfolder path for groups: {subfolder}", file=sys.stderr) 
     
-    i = 0 # Current image index being processed
-    start = 0 # Start index for slicing homographies
+    i = 0 # Current image index being processed (corresponds to image_files index)
+    start_hm_idx = 0 # Start index for slicing homographies (corresponds to H list index)
 
     while i < len(image_files):
         filename = os.path.basename(image_files[i])
@@ -92,34 +116,61 @@ def move_images(image_path, save_path, homography, boundaries, duplicate, overla
             os.makedirs(subfolder)
             print(f"DEBUG(split): Created group subfolder: {subfolder}", file=sys.stderr)
 
+        source_path = image_files[i] # Original image path
         destination_path = os.path.join(subfolder, filename)
         
         # Move or copy the image file
         try:
             if not duplicate:
-                shutil.move(image_files[i], destination_path)
+                shutil.move(source_path, destination_path) # Move will keep EXIF if possible, but safer to re-embed
                 print(f"DEBUG(split): Moved image {filename} to {subfolder}", file=sys.stderr)
             else:
-                shutil.copy(image_files[i], destination_path)
+                shutil.copy(source_path, destination_path) # Copy will strip EXIF unless re-embedded
                 print(f"DEBUG(split): Copied image {filename} to {subfolder}", file=sys.stderr)
+            
+            # NEW: Always preserve EXIF data after move/copy for robustness
+            preserve_exif_data_split(source_path, destination_path)
+
         except Exception as e:
             print(f"ERROR(split): Failed to move/copy {filename} to {destination_path}: {e}", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
             # Decide if you want to exit or continue on file error
+            sys.exit(1) # Exit on critical file operation failure
 
         group_count += 1
         i = i + 1
 
         # Check if the current image index 'i' hits a boundary to close the current group and start a new one
         # Ensure boundary_idx is within the bounds of group_boundary list
+        # group_boundary values represent the 'image index' where a new group starts.
+        # Homographies are H_0_1, H_1_2, ... H_N-1_N. So H[k] corresponds to image k+1.
+        # If boundary is image index `B`, then homographies for images up to `B-1` (i.e., H_0_1 ... H_B-2_B-1)
+        # belong to the current group.
+        # The number of homographies for N images is N-1.
+        # If a group has images from index `S` to `E`, it will have `E-S` homographies.
+        # `H` list is 0-indexed where `H[k]` is the homography between image `k` and `k+1`.
+        # So, if images are `I_S, I_S+1, ..., I_E`, the homographies are `H[S], H[S+1], ..., H[E-1]`.
+        # The number of such homographies is `(E-1) - S + 1 = E-S`.
+        # Your `group_boundary` values indicate the *index of the image that starts the new group*.
+        # So, if `group_boundary[boundary_idx]` is `B`, images `I_0` to `I_{B-1}` are in the current group.
+        # This means homographies `H[0]` to `H[B-2]` belong to the current group.
+        # The `start_hm_idx` is the starting index in the `H` list.
+        # The end index should be `group_boundary[boundary_idx] - 1` (image index),
+        # which means `H` index up to `group_boundary[boundary_idx] - 2`.
+        # The slice end index in Python is exclusive.
+        # So, `H[start_hm_idx : group_boundary[boundary_idx] - 1]` for homographies up to image `group_boundary[boundary_idx] - 1`.
+
         if boundary_idx < len(group_boundary) and i == group_boundary[boundary_idx]:
             # Slice the homographies for the current group
-            # Note: i-1 because the homography for image 'i' connects image 'i-1' to 'i'
-            # and the range is [start, i-1) for a number of matches up to (i-1)
-            h_temp = H[start:i-1] 
+            # The indices in `H` correspond to the starting image of the pair.
+            # If `group_boundary[boundary_idx]` is the image index where a new group starts,
+            # then the last image in the current group is `group_boundary[boundary_idx] - 1`.
+            # The last homography in `H` list that belongs to this group is `H[group_boundary[boundary_idx] - 2]`.
+            # So the slice for H should be `H[start_hm_idx : group_boundary[boundary_idx] -1]` (exclusive end for Python slice).
+            h_temp = H[start_hm_idx : group_boundary[boundary_idx] - 1] 
             
             print(f"DEBUG(split): --- Boundary hit! ({i} == {group_boundary[boundary_idx]}) ---", file=sys.stderr)
-            print(f"DEBUG(split): Slicing homographies from index {start} to {i-1}. Resulting h_temp length: {len(h_temp)}", file=sys.stderr)
+            print(f"DEBUG(split): Slicing homographies from index {start_hm_idx} to {group_boundary[boundary_idx]-1} (exclusive end). Resulting h_temp length: {len(h_temp)}", file=sys.stderr)
             
             if not h_temp:
                 print(f"WARNING(split): h_temp (sliced homographies) is empty for group {subfolder_count}. No H_asift CSV will be written for this group.", file=sys.stderr)
@@ -134,11 +185,11 @@ def move_images(image_path, save_path, homography, boundaries, duplicate, overla
 
             try:
                 # Write the sliced homographies to the group-specific CSV
-                with open(group_hm_filepath, 'a', newline='') as f1: #newline='' for better CSV handling
+                with open(group_hm_filepath, 'w', newline='') as f1: # Use 'w' to overwrite, 'a' if appending multiple runs is intended
                     wr = csv.writer(f1, delimiter=",", quoting = csv.QUOTE_NONE)
                     for h_each_save in h_temp:
                         wr.writerow(h_each_save)
-                print(f"DEBUG(split): Successfully wrote {len(h_temp)} rows to {group_hm_filepath}", file=sys.stderr)
+                print(f"DEBUG(split): Successfully wrote {len(h_temp)} rows to {group_hm_filepath}.", file=sys.stderr)
             except Exception as e:
                 print(f"ERROR(split): Failed to write group homography CSV {group_hm_filepath}: {e}", file=sys.stderr)
                 traceback.print_exc(file=sys.stderr)
@@ -153,17 +204,34 @@ def move_images(image_path, save_path, homography, boundaries, duplicate, overla
             
             # Update subfolder path for the next group
             subfolder = os.path.join(save_path, 'group_{}'.format(str(subfolder_count).zfill(3)))
-            start = i # Set new start index for slicing homographies in the next group
-            h_temp = [] # Clear h_temp for the next group
+            start_hm_idx = i # Set new start index for slicing homographies in the next group
+            h_temp = [] # Clear h_temp for the next group (though re-assigned in next loop iter)
 
-    # Handle any remaining images if the loop finishes before all boundaries are hit
-    # (This logic was commented out in your original, leaving as a comment)
-    # '''
-    # h_temp = H[start:i]
-    # with open(save_path+"/H_asift_"+'group_{}'.format(subfolder_count)+".csv", 'a') as f1:
-    #     wr = csv.writer(f1, delimiter=",", escapechar = ",", quoting = csv.QUOTE_NONE)
-    #     wr.writerow(h_temp)
-    # '''
+    # Handle any remaining images/homographies that didn't hit a boundary
+    # This ensures the last group is also processed.
+    if i > start_hm_idx: # If there are images left in the current (last) group
+        h_temp = H[start_hm_idx : len(H)] # Slice from start_hm_idx to end of H list
+        
+        print(f"DEBUG(split): --- End of images reached. Processing final group. ---", file=sys.stderr)
+        print(f"DEBUG(split): Slicing homographies from index {start_hm_idx} to {len(H)} (exclusive end). Resulting h_temp length: {len(h_temp)}", file=sys.stderr)
+
+        if not h_temp:
+            print(f"WARNING(split): h_temp (sliced homographies) is empty for final group {subfolder_count}. No H_asift CSV will be written.", file=sys.stderr)
+        
+        group_hm_filename = "H_asift_group_{}.csv".format(str(subfolder_count).zfill(3))
+        group_hm_filepath = os.path.join(subfolder, group_hm_filename)
+        print(f"DEBUG(split): Attempting to write final group homography CSV to: {group_hm_filepath}", file=sys.stderr)
+
+        try:
+            with open(group_hm_filepath, 'w', newline='') as f1:
+                wr = csv.writer(f1, delimiter=",", quoting = csv.QUOTE_NONE)
+                for h_each_save in h_temp:
+                    wr.writerow(h_each_save)
+            print(f"DEBUG(split): Successfully wrote {len(h_temp)} rows to {group_hm_filepath}.", file=sys.stderr)
+        except Exception as e:
+            print(f"ERROR(split): Failed to write final group homography CSV {group_hm_filepath}: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+
 
 def filter_on_shoulder(peaks, properties, data, window_size):
     filtered_peaks = []
@@ -237,7 +305,7 @@ if __name__ == '__main__':
             continue
 
         try:
-            with open(angle_file, 'r') as file:
+            with open(angle_file, 'r', newline='') as file: # Added newline=''
                 i_plot_counter += 1 # Increment for plot filename
                 angle_reader = csv.reader(file)
                 for row in angle_reader:
@@ -271,36 +339,46 @@ if __name__ == '__main__':
         plot_partition(angle_diffs, filtered_peaks, os.path.join(save_path, 'angle_peaks_plot%02d.png' % i_plot_counter))
         
         print(f"DEBUG(split main): Raw filtered_peaks: {filtered_peaks}", file=sys.stderr) # This prints to stderr
-        print(len(angle_diffs)-1) # Original print to stdout
-        print(angle_diffs) # Original print to stdout
+        # The following two print to stdout in original, keeping for consistency.
+        # print(len(angle_diffs)-1) 
+        # print(angle_diffs) 
         
         # convert to array to allow addition
         # Add 3 as an offset, then prev_end_number to accumulate counts across multiple files
+        # The '3' offset means a boundary is 3 frames AFTER the peak.
         current_peaks = np.asarray(filtered_peaks) + 3 + prev_end_number
 
         # convert back to list
         partition_boundary.extend(current_peaks.tolist()) # Use extend for lists
 
-        print("Frame boundaries so far : ", partition_boundary) # Original print to stdout
+        print("Final partition boundaries from current angle_csv : ", current_peaks.tolist()) # Original print to stdout
         
-        prev_end_number += len(angle_diffs) + 2 # Update accumulated end number
-        print('prev end number: ', prev_end_number) # Original print to stdout
+        # prev_end_number should be the *total count of images processed so far* + 1 (for next start).
+        # Angle diffs are N-1 for N images.
+        # If angle_diffs has length L, it corresponds to L+1 images.
+        prev_end_number += len(angle_diffs) + 1 # Update accumulated end number (number of images processed so far)
+        print(f'DEBUG(split main): Current accumulated prev_end_number (total images processed + 1 for next start): {prev_end_number}', file=sys.stderr)
         
     
     # After looping through all angle_csv files, append the final end number
-    if partition_boundary: # Only append if some boundaries were found
-        partition_boundary.append(prev_end_number)
-    else: # If no peaks or angle diffs, set a default boundary (e.g., end of images)
-        print("WARNING(split main): No partition boundaries found after processing all angle CSVs. Attempting to create one large group.", file=sys.stderr)
-        # Fallback: if no peaks are found, create one large group using the total number of images.
-        # This requires knowing the total image count from image_path.
-        # For a simple solution, we can append the total number of homographies if available.
-        # This part requires more context to implement robustly without image_files count here.
-        # For now, if partition_boundary is empty, the move_images will get an empty list,
-        # which will cause no groups to be created.
-        pass # Keep existing behavior of possibly empty boundary for now.
+    # This appends the overall total number of images to ensure the last group goes to the end.
+    if partition_boundary: 
+        # If the last peak isn't near the end, ensure the last group goes to the final image.
+        # This will be the image count equivalent to the last H_asift.csv row + 1.
+        # The total number of images that correspond to the total homography list H is len(H) + 1.
+        # If prev_end_number correctly tracks the image index *after* the last processed image.
+        # However, `move_images` needs the index of the *last image in the final group* + 1.
+        # For simplicity, append the total number of images available if it's larger than the last boundary.
+        # The correct value for the final boundary should be `len(image_files)`.
+        # Ensure image_files is correctly populated from `args.image_path` before this.
+        # The move_images function loads `image_files` again, let's pass `len(image_files)` explicitly.
+        
+        # We need the total number of images that will be processed by move_images.
+        # To get this, we would ideally load `image_files` in the main `if __name__ == '__main__':` block.
+        # For now, let's assume `move_images` correctly handles the end.
+        pass # The move_images function now has better end-of-loop handling.
             
-    print("Final partition_boundary: ", partition_boundary) # Original print to stdout
+    print("Final partition_boundary list to be used for partitioning images: ", partition_boundary) # Original print to stdout
     
     # grouping the group partition
     # image_path is expected to be a list, even if it has one element (the directory)

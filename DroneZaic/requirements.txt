@@ -1,81 +1,75 @@
-# Core dependencies - updated to be compatible with Python 3.10+
-absl-py # Let pip install the latest compatible version (should be 1.x or 2.x)
-astor==0.8.1 # Last version compatible with Python 3.x before removal/integration
-backports-abc==0.5.0 # Latest, might not be needed for Py3.10+
-# backports.functools-lru-cache # Not needed for Py3.10+, functools.lru_cache is built-in
-# backports.shutil-get-terminal-size # Not needed for Py3.10+, shutil.get_terminal_size is built-in
-# backports.weakref # Not needed for Py3.10+
-bleach # Latest compatible (e.g., 6.x)
-click # Latest stable (e.g., 8.1.2)
-cloudpickle # Latest stable (e.g., 3.0.0)
-cycler # Latest stable (e.g., 0.12.1)
-Cython # Latest stable (e.g., 3.0.10)
-decorator # Latest stable (e.g., 5.1.1)
-# enum34 # Not needed for Py3.10+, enum is built-in
-EventAccumulator==0.1.1 # Specific, keep as is if no newer version or it's custom
-# ffmpeg # This is a system dependency, not a Python package. Removed from here.
-ffmpeg-python # Latest stable (e.g., 0.2.0)
-# funcsigs # Not needed for Py3.10+, inspect.signature is built-in
-future # Latest stable (e.g., 0.18.3)
-gast # Latest compatible (e.g., 0.5.4 or removed if using modern TF)
-grpcio # Latest stable (e.g., 1.64.0)
-h5py # Latest stable (e.g., 3.11.0)
-html5lib # Latest stable (e.g., 1.1)
-imutils # Latest stable (e.g., 0.5.4)
-ipykernel # Latest stable (e.29.5)
-ipython # Latest stable (e.g., 8.26.0)
-ipython-genutils # Latest stable (e.g., 0.2.0)
-jupyter-client # Latest stable (e.g., 8.6.1)
-jupyter-core # Latest stable (e.g., 5.7.2)
+# Core dependencies - updated to be compatible with Python 3.10
+absl-py
+astor==0.8.1
+backports-abc==0.5.0
+bleach
+click
+cloudpickle
+cycler
+Cython
+decorator
+EventAccumulator==0.1.1
+ffmpeg-python
+future
+gast
+grpcio
+h5py
+html5lib
+imutils
+ipykernel
+ipython
+ipython-genutils
+jupyter-client
+jupyter-core
 
-# TensorFlow/Keras specific (BIG CHANGES HERE)
-# If your code uses TF 1.x APIs, upgrading to TF 2.x will break it.
-# This assumes you are willing to update your code or rely on TF's compat.v1.
-# TensorFlow 2.x integrates Keras directly.
-tensorflow # <<<--- CHANGED THIS FROM tensorflow-gpu
-# Keras is usually not installed separately with modern TensorFlow
-# Keras==2.2.4 # Commented out as Keras is integrated into TensorFlow 2.x
-Keras-Applications # Latest compatible with TF2 (e.g., 1.0.8, often just installed by TF)
-Keras-Preprocessing # Latest compatible with TF2 (e.g., 1.1.2, often just installed by TF)
+# TensorFlow/Keras specific - Pinning older versions for Python 3.10 compatibility
+tensorflow==2.10.0 # Compatible with Python 3.10, requires protobuf<3.20
+Keras-Applications==1.0.8
+Keras-Preprocessing==1.1.2
 
-Markdown # Latest compatible (e.g., 3.6)
-matplotlib # Latest stable (e.g., 3.9.0)
-mock # Latest stable (e.g., 5.1.0)
-networkx # Latest stable (e.g., 3.3)
-numpy # Latest stable that works well with modern TF/OpenCV (e.g., 1.26.4)
-opencv-contrib-python # Latest stable (e.g., 4.9.0.80)
-opencv-python # Latest stable (e.g., 4.9.0.80)
-pathlib2 # Latest, might not be needed for Py3.10+ (pathlib is built-in)
-pbr # Latest stable (e.g., 6.0.0)
-pexpect # Latest stable (e.g., 4.9.0)
-pickleshare # Latest stable (e.g., 0.7.5)
-Pillow # Latest stable (e.g., 10.3.0)
-prompt-toolkit # Latest stable (e.g., 3.0.47)
-protobuf # Latest stable (e.g., 4.25.3). Older TF versions require specific protobuf versions.
-ptyprocess # Latest stable (e.g., 0.7.0)
-Pygments # Latest stable (e.g., 2.18.0)
-pyparsing # Latest stable (e.g., 3.1.2)
-python-dateutil # Latest stable (e.g., 2.9.0.post0)
-pytz # Latest stable (e.g., 2024.1)
-PyWavelets # Latest stable (e.g., 1.6.0)
-PyYAML # Latest stable (e.g., 6.0.1)
-pyzmq # Latest stable (e.g., 26.0.0)
-scandir # Latest, might not be needed for Py3.10+ (os.scandir is built-in)
-scenedetect # Latest stable (e.g., 0.6.1)
-scikit-image # Latest stable (e.g., 0.23.0)
-scikit-learn # Latest stable (e.g., 1.4.2)
-scipy # Latest stable (e.g., 1.13.1)
-simplegeneric # Latest stable (e.8.1)
-singledispatch # Latest, might not be needed for Py3.10+ (functools.singledispatch is built-in)
-six # Latest stable (e.g., 1.16.0)
-# tensorflow-tensorboard # This is usually bundled with tensorflow. Removed.
-termcolor # Latest stable (e.g., 2.4.0)
-tornado # Latest stable (e.g., 6.4)
-tqdm # Latest stable (e.g., 4.66.4)
-traitlets # Latest stable (e.g., 5.14.3)
-virtualenv # Latest stable (e.g., 20.26.2)
-wcwidth # Latest stable (e.g., 0.2.13)
-Werkzeug # Latest stable (e.g., 3.0.1)
-exifread # Latest stable (e.g., 3.0.0)
-rasterio # Latest stable (e.g., 1.3.10)
+Markdown
+matplotlib
+mock
+networkx
+numpy==1.24.4 # FIX: Changed from 1.26.4 to 1.24.4 to satisfy scipy<1.26.0
+opencv-contrib-python==4.5.5.64 # Pinning a version for better compatibility
+opencv-python==4.5.5.64 # Pinning a version for better compatibility
+pathlib2
+pbr
+pexpect
+pickleshare
+Pillow
+prompt-toolkit
+protobuf==3.19.6 # Crucial: Must be <3.20 for TensorFlow 2.10.0
+ptyprocess
+Pygments
+pyparsing
+python-dateutil
+pytz
+PyWavelets
+PyYAML
+pyzmq
+scandir
+scenedetect
+scikit-image
+scikit-learn
+scipy==1.9.3 # This version requires numpy<1.26.0 and >=1.18.5
+simplegeneric
+six
+termcolor
+tornado
+tqdm
+traitlets
+virtualenv
+wcwidth
+Werkzeug
+exifread
+rasterio
 piexif
+
+# Added for SuperGlue/LightGlue - Pinning compatible versions for Python 3.10
+# Based on PyTorch 2.0.1 being the last LTS for Python 3.10
+torch==2.0.1
+torchvision==0.15.2
+torchaudio==2.0.2
+# lightglue removed from here, as it's installed from GitHub in Dockerfile

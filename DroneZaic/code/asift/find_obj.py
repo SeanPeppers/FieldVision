@@ -24,7 +24,7 @@ def init_feature(name: str):
         detector = cv.SURF_create()
     elif feature_name == 'orb':
         # Default nfeatures is 5000, which you've already tuned
-        detector = cv.ORB_create(nfeatures=5000) 
+        detector = cv.ORB_create(nfeatures=10000) 
     elif feature_name == 'brisk':
         detector = cv.BRISK_create()
     else:
@@ -52,7 +52,7 @@ def init_feature(name: str):
 
 # This function filters raw matches based on ratio test and extracts points/indices
 # UPDATED: Made the ratio test slightly looser to allow more matches to pass
-def filter_matches(kp1: list, kp2: list, raw_matches: list, ratio: float = 0.65): # Changed ratio from 0.5 to 0.6
+def filter_matches(kp1: list, kp2: list, raw_matches: list, ratio: float = 0.70): # Changed ratio from 0.5 to 0.6
     """
     Filters raw DMatch objects based on Lowe's ratio test and extracts
     corresponding keypoints and their indices.
