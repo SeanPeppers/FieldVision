@@ -66,7 +66,7 @@ Werkzeug
 exifread
 rasterio
 piexif
-
+Flask
 # Added for SuperGlue/LightGlue - Pinning compatible versions for Python 3.10
 # Based on PyTorch 2.0.1 being the last LTS for Python 3.10
 torch==2.0.1

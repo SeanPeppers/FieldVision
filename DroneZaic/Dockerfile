@@ -43,7 +43,7 @@ RUN git clone https://github.com/magicleap/SuperGluePretrainedNetwork.git
 RUN git clone https://github.com/cvg/LightGlue.git /app/LightGlue \
     && pip install --no-cache-dir -e /app/LightGlue
 
-# Copy all *necessary* code files.
+# Copy all *necessary* src files.
 # With the .dockerignore, this will only bring in the actual Python scripts and __init__.py files.
 COPY . .
 
@@ -51,10 +51,10 @@ COPY . .
 # Initialize PYTHONPATH if it might be unset
 ENV PYTHONPATH=/app:/app/SuperGluePretrainedNetwork:${PYTHONPATH:-}
 
-RUN chmod +x code/maizaic_run.sh
-RUN chmod +x code/run_all.sh
-RUN chmod +x code/run_global.sh
-RUN chmod +x code/run_mini.sh
+RUN chmod +x src/maizaic_run.sh
+RUN chmod +x src/run_global.sh
+RUN chmod +x src/run_mini.sh
+RUN chmod +x src/full_pipeline.sh
 
 # Define the command to run when the container starts.
-CMD ["code/maizaic_run.sh", "-h", "surf", "-d", "false"]
+CMD ["src/maizaic_run.sh", "-h", "surf", "-d", "false"]
