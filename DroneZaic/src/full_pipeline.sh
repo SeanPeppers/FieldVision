@@ -11,6 +11,7 @@ set -e # Exit immediately if a command exits with a non-zero status.
 APP_DIR="/app"
 CONTAINER_OUTPUTS_DIR="/app/outputs" # This will be mounted from host
 INPUT_VIDEOS_DIR="$APP_DIR/input_videos" # Directory where uploaded videos are copied
+SRC_DIR="$APP_DIR/src" # New variable for the source code directory
 
 # Check if video filename is provided as an argument
 if [ -z "$1" ]; then
@@ -39,7 +40,7 @@ echo "Ensured base output directory $CONTAINER_OUTPUTS_DIR is ready."
 # --- PHASE 1: Dynamic Sampling (Frame Extraction) ---
 echo "--- Starting Dynamic Sampling (Frame Extraction) ---"
 DYNAMIC_SAMPLING_FRAMES_DIR="$CONTAINER_OUTPUTS_DIR/extracted_frames"
-DYNAMIC_SAMPLING_CMD="python \"$APP_DIR/src/dynamic_sampling.py\" \
+DYNAMIC_SAMPLING_CMD="python \"$SRC_DIR/dynamic_sampling.py\" \
     -video \"$VIDEO_INPUT_PATH\" \
     -save_path \"$DYNAMIC_SAMPLING_FRAMES_DIR\" \
     -win 100 \
@@ -65,7 +66,7 @@ if [ ! -d "$RAW_FRAMES_INPUT_PATH" ]; then
     echo "Error: Raw frames directory '$RAW_FRAMES_INPUT_PATH' not found. Dynamic sampling might have failed or saved frames elsewhere."
     exit 1
 fi
-python "$APP_DIR/src/calibration.py" \
+python "$SRC_DIR/calibration.py" \
     -image_path "$RAW_FRAMES_INPUT_PATH" \
     -save_path "$CALIBRATED_FRAMES_DIR"
 if [ $? -ne 0 ]; then echo "Error: calibration.py failed."; exit 1; fi
@@ -76,7 +77,11 @@ echo "--- Starting ASIFT Homography Estimation ---"
 HOMOGRAPHY_RESULTS_DIR="$CONTAINER_OUTPUTS_DIR/homography_results"
 HM_METHOD="asift" # Explicitly using 'asift' for homography method
 HOMOGRAPHY_MATRICES_FILE="$HOMOGRAPHY_RESULTS_DIR/homography_matrices/H_${HM_METHOD}.csv"
-python -m "$APP_DIR/src/asift.asift_homography_estimation" \
+
+# --- IMPORTANT FIX HERE ---
+# Add /app/src to PYTHONPATH so Python can find 'asift' package
+# Then, use the module name 'asift.asift_homography_estimation' with -m
+PYTHONPATH="$SRC_DIR:$PYTHONPATH" python -m asift.asift_homography_estimation \
     -image_path "$CALIBRATED_FRAMES_DIR" \
     -save_path "$HOMOGRAPHY_RESULTS_DIR" \
     -hm "$HOMOGRAPHY_MATRICES_FILE" \
@@ -84,7 +89,7 @@ python -m "$APP_DIR/src/asift.asift_homography_estimation" \
 if [ $? -ne 0 ]; then echo "Error: asift_homography_estimation failed."; exit 1; fi
 echo "ASIFT Homography Estimation complete. Homography matrices saved to $HOMOGRAPHY_MATRICES_FILE."
 
-# --- PHASE 4: Mini-Mosaic Generation ---
+# --- PHASE 4: Mini-Mosaic Generation (from run_mini.sh content) ---
 echo "--- Starting Mini-Mosaic Generation ---"
 
 MODE_DUPLICATE="true" # Hardcoding mode_duplicate to 'true' as per your typical use
@@ -131,7 +136,7 @@ echo "All required inputs for mini-mosaic generation are present."
 
 # --- PHASE 4.1: Split to group based on boundaries ---
 echo "Running split_for_mini.py to partition images..."
-split_cmd="python \"$APP_DIR/src/split_for_mini.py\" \
+split_cmd="python \"$SRC_DIR/split_for_mini.py\" \
     -image_path \"$CALIBRATED_FRAMES_DIR\" \
     -save_path \"$MINI_PARTITION_DIR\" \
     -hm \"$HOMOGRAPHY_MATRICES_FILE\" \
@@ -162,7 +167,7 @@ find "$MINI_PARTITION_DIR" -name "${GROUP_HM_PREFIX}*.csv" | sort | while read m
         group_folder=$(basename "$(dirname "$mini_hm")")
         group_number=$(echo "$group_folder" | grep -oE '[0-9]+')
 
-        stitcher_cmd="python \"$APP_DIR/src/stitcher.py\" \
+        stitcher_cmd="python \"$SRC_DIR/stitcher.py\" \
             -image_path \"$MINI_PARTITION_DIR/$group_folder\" \
             -hm \"$mini_hm\" \
             -save_path \"$MINI_MOSAICS_DIR\" \

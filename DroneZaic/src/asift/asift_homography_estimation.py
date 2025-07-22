@@ -26,12 +26,12 @@ import cv2
 import csv
 import sys # Import sys for sys.exit
 # Corrected to import 'stitcher' module, assuming stitcher.py is directly under /app/code/
-from code import stitcher 
+from src import stitcher 
 from numpy import genfromtxt
 import numpy as np
 from numpy.linalg import inv
 # Corrected to use absolute import path from the 'code' package
-from code.asift.asift import my_asift 
+from src.asift.asift import my_asift 
 import time
 # Removed redundant 'import csv' as it's already imported above
 
