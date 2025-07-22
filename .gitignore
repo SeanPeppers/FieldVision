@@ -1,2 +1,5 @@
 DroneZaic/input_videos/
 DroneZaic/outputs/
+colmap_app/data/outputs/
+sfm_app/data/outputs/
+counting_app/app/outputs/

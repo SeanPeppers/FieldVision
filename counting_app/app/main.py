@@ -17,6 +17,7 @@ import cv2
 import math # For ceiling division if needed for progress calculation
 import asyncio # Import asyncio to use to_thread for blocking operations
 import yaml # For parsing data.yaml
+import psutil 
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -523,3 +524,31 @@ async def get_status(job_id: str):
         return JSONResponse(status_code=200, content=response_content, headers=headers)
     else:
         raise HTTPException(status_code=404, detail="Job ID not found.")
+
+
+@app.get("/compute_status")
+async def compute_status():
+    """
+    Provides real-time information about the Docker container's CPU, memory, disk I/O, and network I/O usage.
+    """
+    # Use interval=None for instantaneous (non-blocking) CPU percentage
+    cpu_percent = psutil.cpu_percent(interval=None)
+    memory_info = psutil.virtual_memory()
+    disk_io = psutil.disk_io_counters()
+    net_io = psutil.net_io_counters()
+
+    print(f"[{datetime.now()}] API Request: /compute_status received. Returning system metrics.")
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "cpu_percent": cpu_percent,
+            "memory_percent": memory_info.percent,
+            "memory_used_mb": round(memory_info.used / (1024 * 1024), 2),
+            "memory_total_mb": round(memory_info.total / (1024 * 1024), 2),
+            "disk_read_bytes": disk_io.read_bytes,
+            "disk_write_bytes": disk_io.write_bytes,
+            "network_bytes_sent": net_io.bytes_sent,
+            "network_bytes_recv": net_io.bytes_recv
+        }
+    )

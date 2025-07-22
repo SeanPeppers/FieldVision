@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+opencv-python-headless
+numpy
+scipy
+psutil
+torch
+torchvision
+Pillow
+huggingface_hub
+lightglue @ git+https://github.com/jytime/LightGlue.git
+python-multipart
+
